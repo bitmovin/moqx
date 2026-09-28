@@ -1,0 +1,45 @@
+# Build and test the fork's branch on every push, the way upstream's PR lane
+# does for main. Upstream's workflows run on pull requests and on main only,
+# and this branch is neither.
+#
+# `--moxygen prebuilt-with-fallback`: the pin is a bitmovin/moxygen revision,
+# which has no published prebuilt, so this compiles moxygen and its folly
+# stack from source until a prebuilt for that revision is published; ccache
+# carries most of it between runs.
+name: bitmovin ci
+
+on:
+  push:
+    branches: [bitmovin]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    if: github.repository_owner == 'bitmovin'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-build
+        with:
+          ccache-key: bitmovin-linux
+      - name: Build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          scripts/configure.sh default --moxygen prebuilt-with-fallback
+          scripts/build.sh default
+      - name: ccache stats
+        if: always()
+        run: ccache -s
+      - name: Test
+        run: scripts/test.sh default --output-junit test-results.xml
+      - name: Publish test results
+        uses: dorny/test-reporter@v3
+        if: success() || failure()
+        with:
+          name: "test (bitmovin linux)"
+          path: build/default/test-results.xml
+          reporter: java-junit
+          fail-on-empty: ${{ job.status == 'success' && 'true' || 'false' }}
+          list-tests: failed
