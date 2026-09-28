@@ -1,6 +1,11 @@
-# Build and test the fork's branch on every push, the way upstream's PR lane
-# does for main. Upstream's workflows run on pull requests and on main only,
-# and this branch is neither.
+# Build and test the fork's branch on every push, and every pull request into
+# it, the way upstream's PR lane does for main. Upstream's workflows run on
+# pull requests and on main only, and this branch is neither.
+#
+# The pull_request trigger is also what makes a PR's build fast: GitHub lets a
+# run restore caches from its own branch, the default branch (upstream's
+# untouched main here, which never builds) and, for a pull request, its base
+# branch. So a topic branch reaches this branch's ccache only through a PR.
 #
 # `--moxygen prebuilt-with-fallback`: the pin is a bitmovin/moxygen revision,
 # which has no published prebuilt, so this compiles moxygen and its folly
@@ -10,6 +15,8 @@ name: bitmovin ci
 
 on:
   push:
+    branches: [bitmovin]
+  pull_request:
     branches: [bitmovin]
   workflow_dispatch:
 
