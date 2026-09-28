@@ -14,6 +14,9 @@
 # Plain set(), not CACHE: this file must always win, so a pin bump takes effect
 # on the next reconfigure of an existing build dir. A cached pin would silently
 # shadow the file's value.
+# TODO: bump MOXYGEN_REV to the first moxygen commit that carries
+# MoQServer::Options::txnTimeout; this option is wired to it and does not build
+# against an earlier pin.
 set(MOXYGEN_REPOSITORY "openmoq/moxygen")
 set(MOXYGEN_REV "a6176616d8969e1106ed66d3cd7f9507d5249bc4")
 

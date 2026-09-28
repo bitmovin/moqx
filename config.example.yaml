@@ -21,6 +21,8 @@ listeners:
       insecure: true          # Skip TLS for local development
     endpoint: "/moq-relay"    # WebTransport endpoint path
     # moqt_versions: [14, 16] # MOQT draft versions (empty = default 14,16)
+    # session_timeout_ms: 2592000000  # WebTransport (HTTP/3 CONNECT) session idle
+    #                                  # timeout; default 30 days. Must be > 0.
     # quic:                   # Per-listener QUIC overrides (optional; inherits listener_defaults.quic)
     #   max_data: 33554432    # Override connection flow control window for this listener
 

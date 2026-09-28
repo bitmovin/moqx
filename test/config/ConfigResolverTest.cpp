@@ -1026,6 +1026,40 @@ TEST(ResolveConfig, MinimalInsecure) {
   EXPECT_EQ(resolved.services.at("default").cache.maxCachedGroupsPerTrack, 3u);
 }
 
+TEST(ResolveConfig, SessionTimeoutDefaultsToThirtyDays) {
+  auto cfg = makeMinimalInsecureConfig("main");
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasValue());
+  // Default is 30 days: a relay carries arbitrarily long-lived WebTransport
+  // sessions, so the CONNECT idle timeout must not cut a live one.
+  EXPECT_EQ(result.value().config.listeners[0].sessionTimeout.count(), 2592000000LL);
+  EXPECT_THAT(result.value().warnings, IsEmpty());
+}
+
+TEST(ResolveConfig, SessionTimeoutOverride) {
+  auto cfg = makeMinimalInsecureConfig("main");
+  cfg.listeners.value()[0].session_timeout_ms = uint64_t{120000};
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasValue());
+  EXPECT_EQ(result.value().config.listeners[0].sessionTimeout.count(), 120000LL);
+}
+
+TEST(ResolveConfig, SessionTimeoutZeroRejected) {
+  auto cfg = makeMinimalInsecureConfig("main");
+  cfg.listeners.value()[0].session_timeout_ms = uint64_t{0};
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasError());
+  EXPECT_THAT(result.error(), HasSubstr("session_timeout_ms must be > 0"));
+}
+
+TEST(ResolveConfig, SessionTimeoutLowValueWarns) {
+  auto cfg = makeMinimalInsecureConfig("main");
+  cfg.listeners.value()[0].session_timeout_ms = uint64_t{1000};
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasValue());
+  EXPECT_THAT(result.value().warnings, ::testing::Contains(HasSubstr("session_timeout_ms")));
+}
+
 TEST(ResolveConfig, FullTls) {
   ParsedConfig cfg;
   ParsedListenerConfig lc;

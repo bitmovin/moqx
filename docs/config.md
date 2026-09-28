@@ -64,6 +64,7 @@ listeners:
     endpoint: /moq-relay
     quic_stack: mvfst         # optional; default mvfst
     moqt_versions: []         # optional; empty = default [14, 16]
+    session_timeout_ms: 2592000000  # optional; default 30 days; WebTransport session idle timeout
     quic: { ... }             # optional; overrides listener_defaults.quic
 ```
 
@@ -71,6 +72,16 @@ listeners:
 verification. This is incompatible with `quic_stack: picoquic`.
 
 **moqt_versions:**: Currently supports 14 and 16.
+
+**session_timeout_ms:** Idle timeout (ms) of the HTTP/3 CONNECT transaction that
+carries a MoQ WebTransport session; mvfst stack only. A MoQ session's control and
+media ride their own QUIC streams, so the CONNECT transaction is otherwise idle
+for the session's whole life — this therefore bounds how long a session may live,
+not how long it may be quiet. Default 2592000000 (30 days), i.e. effectively "do
+not cut a live session". Must be > 0 and warns if < 5000: it is passed to
+proxygen's stream dispatcher, which schedules it unguarded, so 0 would reject
+every new stream a tick after it opened rather than disabling the timeout. This
+is the knob that stops browser sessions going dark after the old hardcoded 60 s.
 
 **Duplicate listeners** (same address+port combination) are rejected.
 

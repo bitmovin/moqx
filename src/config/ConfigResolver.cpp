@@ -51,6 +51,12 @@ std::string matchRuleErrorLabel(const std::string& name, size_t j) {
 // kSupportedVersions but not yet interoperable); configure moqt_versions to opt in.
 constexpr const char* kDefaultMoqtVersions = "14,16";
 
+// Default HTTP/3 CONNECT (MoQ session) idle timeout: 30 days. A relay carries
+// arbitrarily long-lived WebTransport sessions, so this is effectively "do not
+// cut a live session"; it is finite only because 0 is unsafe (see
+// validateListener).
+constexpr uint64_t kDefaultSessionTimeoutMs = 2592000000ULL;
+
 std::string moqtVersionsToString(const ParsedListenerConfig& listener) {
   if (!listener.moqt_versions.value().has_value() || listener.moqt_versions.value()->empty()) {
     return kDefaultMoqtVersions;
@@ -386,6 +392,26 @@ void validateListener(
         "Listener '" + listener.name.value() +
         "': quic_stack \"picoquic\" does not support pkcs12_file yet; use cert_file/key_file"
     );
+  }
+
+  // session_timeout_ms: must be > 0. moxygen passes it to proxygen's
+  // HQStreamDispatcher, which schedules it unguarded, so 0 rejects every new
+  // stream a tick after it opens rather than disabling the timeout.
+  if (const auto& sessionTimeoutMs = listener.session_timeout_ms.value();
+      sessionTimeoutMs.has_value()) {
+    if (*sessionTimeoutMs == 0) {
+      errors.push_back(
+          "Listener '" + listener.name.value() +
+          "': session_timeout_ms must be > 0 (0 rejects every new stream rather "
+          "than disabling the timeout)"
+      );
+    } else if (*sessionTimeoutMs < 5000) {
+      warnings.push_back(
+          "Listener '" + listener.name.value() + "': session_timeout_ms (" +
+          std::to_string(*sessionTimeoutMs) +
+          ") is very aggressive (< 5000ms); MoQ sessions will be cut this fast"
+      );
+    }
   }
 }
 
@@ -1099,6 +1125,9 @@ ListenerConfig resolveListener(
       .quicStack = quicStack,
       .quic = quic,
       .mvfst = mvfst,
+      .sessionTimeout = std::chrono::milliseconds(
+          listener.session_timeout_ms.value().value_or(kDefaultSessionTimeoutMs)
+      ),
   };
 }
 

@@ -323,6 +323,7 @@ inline void serializeConfig(const Config& cfg, ConfigSink& s) {
     s.stringField("address", l.address.describe());
     s.stringField("endpoint", l.endpoint);
     s.stringField("moqt_versions", l.moqtVersions);
+    s.intField("session_timeout_ms", l.sessionTimeout.count());
     s.stringField("quic_stack", quicStackName(l.quicStack));
     serializeListenerTls(s, l.tlsMode);
     serializeQuic(s, l.quic);

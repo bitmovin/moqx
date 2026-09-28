@@ -170,6 +170,14 @@ struct ListenerConfig {
   QuicStack quicStack{QuicStack::Mvfst};
   QuicConfig quic;   // merged from listener_defaults.quic + per-listener quic override
   MvfstConfig mvfst; // merged from listener_defaults.mvfst + per-listener mvfst override
+  // Idle timeout for the HTTP/3 CONNECT transaction that carries a MoQ
+  // WebTransport session (mvfst stack only); passed to
+  // moxygen::MoQServer::Options::txnTimeout. A MoQ session's control and media
+  // ride their own QUIC streams, so the CONNECT transaction sees no traffic
+  // once the session is up; this bounds the session's whole lifetime, not its
+  // activity. Must be > 0: proxygen schedules it unguarded, so 0 would reject
+  // every new stream instead of disabling the timeout.
+  std::chrono::milliseconds sessionTimeout{std::chrono::hours(24 * 30)};
 };
 
 struct UpstreamTlsConfig {

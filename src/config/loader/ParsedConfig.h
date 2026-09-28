@@ -297,6 +297,13 @@ struct ParsedListenerConfig {
       "mvfst-specific CC tunables (overrides listener_defaults.mvfst; mvfst stack only)",
       std::optional<ParsedMvfstConfig>>
       mvfst;
+  rfl::Description<
+      "Idle timeout (ms) for the WebTransport HTTP/3 CONNECT transaction that "
+      "carries a MoQ session; mvfst stack only. A session's control and media "
+      "use their own QUIC streams, so this bounds the session's lifetime, not "
+      "its activity. Must be > 0. Default: 2592000000 (30 days).",
+      std::optional<uint64_t>>
+      session_timeout_ms;
 };
 
 struct ParsedCacheConfig {

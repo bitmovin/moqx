@@ -215,6 +215,7 @@ TEST(ConfigSerializerTest, VisitsAllSections) {
 
   EXPECT_EQ(sink.scalars["listeners.*.name"], "main");
   EXPECT_EQ(sink.scalars["listeners.*.quic_stack"], "mvfst");
+  EXPECT_EQ(sink.scalars["listeners.*.session_timeout_ms"], "2592000000");
   EXPECT_EQ(sink.scalars["listeners.*.tls.key_file"], "/etc/relay.key");
   EXPECT_EQ(sink.scalars["listeners.*.quic.cc_algo"], "bbr");
   EXPECT_EQ(sink.scalars["listeners.*.mvfst.bbr2.exit_startup_on_loss"], "true");
