@@ -2334,9 +2334,6 @@ TEST(ResolveConfig, MvfstAlgoFieldsRoundTrip) {
   EXPECT_FLOAT_EQ(out.l4s.ceTarget, 0.05f);
 }
 
-} // namespace
-} // namespace openmoq::moqx::config
-
 // ---------------------------------------------------------------------------
 // abr_stats_header
 // ---------------------------------------------------------------------------
@@ -2403,3 +2400,6 @@ TEST(ResolveConfig, AbrStatsHeaderZeroRefreshRejected) {
   ASSERT_TRUE(result.hasError());
   EXPECT_THAT(result.error(), HasSubstr("abr_stats_header.refresh_ms must be > 0"));
 }
+
+} // namespace
+} // namespace openmoq::moqx::config

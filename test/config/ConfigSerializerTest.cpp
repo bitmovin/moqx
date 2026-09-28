@@ -25,7 +25,7 @@ using namespace openmoq::moqx::config;
 
 static_assert(rfl::internal::num_fields<Config> == 9, "Config changed — update serializeConfig()");
 static_assert(
-    rfl::internal::num_fields<ListenerConfig> == 8,
+    rfl::internal::num_fields<ListenerConfig> == 9,
     "ListenerConfig changed — update serializeConfig()"
 );
 static_assert(
@@ -61,9 +61,12 @@ static_assert(
     "MvfstConfig::L4S changed — update serializeMvfst()"
 );
 static_assert(
-    rfl::internal::num_fields<ServiceConfig> == 4,
+    rfl::internal::num_fields<ServiceConfig> == 5,
     "ServiceConfig changed — update serializeConfig()"
 );
+static_assert(
+    rfl::internal::num_fields<AbrStatsHeaderConfig> == 5,
+    "AbrStatsHeaderConfig changed — update serializeConfig()");
 static_assert(
     rfl::internal::num_fields<ServiceConfig::MatchEntry> == 2,
     "MatchEntry changed — update serializeMatch()"
