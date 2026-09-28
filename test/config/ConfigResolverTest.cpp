@@ -2369,6 +2369,27 @@ TEST(ResolveConfig, AbrStatsHeaderOverride) {
   EXPECT_TRUE(out.perGroup);
 }
 
+TEST(ResolveConfig, AbrStatsHeaderWindowShorterThanRefreshWarns) {
+  auto cfg = makeMinimalInsecureConfig("main");
+  ParsedAbrStatsHeaderConfig h;
+  h.refresh_ms = uint64_t{500};
+  h.rate_window_ms = uint64_t{100};
+  cfg.services.value().at("default").abr_stats_header = std::move(h);
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasValue());
+  EXPECT_THAT(result.value().warnings, ::testing::Contains(HasSubstr("rate_window_ms")));
+}
+
+TEST(ResolveConfig, AbrStatsHeaderBaseTooLargeRejected) {
+  auto cfg = makeMinimalInsecureConfig("main");
+  ParsedAbrStatsHeaderConfig h;
+  h.extension_base = (uint64_t{1} << 62) - 2;
+  cfg.services.value().at("default").abr_stats_header = std::move(h);
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasError());
+  EXPECT_THAT(result.error(), HasSubstr("below 2^62"));
+}
+
 TEST(ResolveConfig, AbrStatsHeaderZeroRateWindowRejected) {
   auto cfg = makeMinimalInsecureConfig("main");
   ParsedAbrStatsHeaderConfig h;

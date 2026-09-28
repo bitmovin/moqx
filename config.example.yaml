@@ -63,6 +63,12 @@ services:
       # max_cache_duration_s: 3600         # Override: tighter max TTL for this service
       # default_max_cache_duration_s: 60   # Override: tighter default TTL for this service
       # default_max_cache_duration_s: 0    # Override: opt-in-only for this service
+    # abr_stats_header:           # Optional: per-viewer connection statistics on every object (docs/abr-stats-header.md)
+    #   enabled: true             # default: false
+    #   extension_base: 16384     # default 0x4000; even; nine fields at base, base+2, ... base+16
+    #   refresh_ms: 100           # default: 1000; how often a subscriber's reading is re-read
+    #   rate_window_ms: 1000      # default: 1000; window the delivery and loss rates cover
+    #   per_group: false          # default: false; true stamps only the first object of each group
     # upstream:                   # Optional: enable relay chaining for this service
     #   url: "moqt://origin.example.com:4433/moq-relay"
     #   tls:

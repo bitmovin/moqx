@@ -22,7 +22,10 @@ services:
       per_group: false        # true: only the first object of each group
 ```
 
-Off by default. `extension_base` picks the extension types (see the table);
+Off by default. Defaults when enabled: `extension_base` 16384 (0x4000),
+`refresh_ms` 1000, `rate_window_ms` 1000, `per_group` false; the example above
+is a setting for a player that wants several readings per group.
+`extension_base` picks the extension types (see the table);
 until the types are registered they are private, so keep both ends agreed.
 `refresh_ms` is how often the relay re-reads the connection for one
 subscriber; the figures on objects in between are repeats of the last reading.
@@ -33,8 +36,9 @@ measured over, independent of the refresh (see Timing).
 
 Every field is a MoQ object extension header of an even type, so its value is
 a varint. They are in the *mutable* section: they describe a hop, not the
-object, and a relay downstream of this one is expected to replace them with
-its own. The types are `base + 2n`:
+object. A relay that stamps removes any values of the same types already on
+the object (from a relay upstream of it, say) before writing its own, so a
+viewer always gets the figures for its own connection, once each. The types are `base + 2n`:
 
 | n | type (base 0x4000) | field | unit | what it represents |
 |---|---|---|---|---|
@@ -48,8 +52,12 @@ its own. The types are `base + 2n`:
 | 7 | 0x400E | `delivery_rate_bps` | bits/s | What the relay actually delivered to this viewer over the rate window: bytes acknowledged in the window, over the window. Short-term. It falls within one window when the link degrades, where `bw_bps` fades slowly. Like `bw_bps` it cannot exceed what was sent, so it says "less than this" reliably and "more than this" never. 0 on the first reading of a subscription, when there is nothing to measure over yet. |
 | 8 | 0x4010 | `rate_window_ms` | ms | The window `delivery_rate_bps` and `loss_permille` are measured over: the relay's `rate_window_ms` setting. Constant for a subscription. Carried so a player can size its own logic to the window without being configured with it. |
 
-All nine are always present when the header is enabled; a value the relay
-does not have is 0, never a missing field.
+A stamped object carries all nine; a value the relay does not have is 0,
+never a missing field. Which objects are stamped: every object of a
+SUBSCRIBE-driven subscription (or only the first of each group with
+`per_group`), except the first few of a new subscription, which go out before
+the first reading has landed. Objects delivered because the relay published a
+track to a subscriber (PUBLISH, not SUBSCRIBE) are never stamped.
 
 ## Reading them together
 
@@ -115,4 +123,9 @@ over the same window, so they describe the same second.
 
 `per_group: true` stamps only the first object of each group (object id 0),
 one reading per group at most, which is less than an ABR that wants to move
-mid-group needs; it costs a few bytes less per object.
+mid-group needs; it costs a few bytes less per object. Readings are still
+taken on every object, so the stamp on a group's first object is current, and
+a viewer that joins mid-group gets its first stamp at the next group.
+
+`rate_window_ms` shorter than `refresh_ms` is accepted with a warning: a rate
+is taken between two readings, so it then covers the refresh interval.

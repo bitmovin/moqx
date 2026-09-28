@@ -301,7 +301,8 @@ AbrStatsHeaderConfig resolveAbrStatsHeader(const std::optional<ParsedAbrStatsHea
 void validateAbrStatsHeader(
     const std::string& serviceName,
     const std::optional<ParsedAbrStatsHeaderConfig>& parsed,
-    std::vector<std::string>& errors
+    std::vector<std::string>& errors,
+    std::vector<std::string>& warnings
 ) {
   if (!parsed.has_value()) {
     return;
@@ -310,6 +311,25 @@ void validateAbrStatsHeader(
     errors.push_back(
         "Service '" + serviceName + "': abr_stats_header.extension_base must be even (" +
         std::to_string(*base) + ")"
+    );
+  }
+  // The last field is at base+16 and every type is a QUIC varint (< 2^62).
+  constexpr uint64_t kMaxAbrExtensionBase = (uint64_t{1} << 62) - 1 - 16;
+  if (const auto& base = parsed->extension_base.value(); base.has_value() && *base > kMaxAbrExtensionBase) {
+    errors.push_back(
+        "Service '" + serviceName + "': abr_stats_header.extension_base leaves no room for "
+        "the nine fields below 2^62"
+    );
+  }
+  // A window shorter than the refresh cannot be honoured: a rate is taken
+  // between two readings, and readings are refresh_ms apart.
+  const uint64_t refreshMs = parsed->refresh_ms.value().value_or(kDefaultAbrRefreshMs);
+  const uint64_t windowMs = parsed->rate_window_ms.value().value_or(kDefaultAbrRateWindowMs);
+  if (refreshMs > 0 && windowMs > 0 && windowMs < refreshMs) {
+    warnings.push_back(
+        "Service '" + serviceName + "': abr_stats_header.rate_window_ms (" +
+        std::to_string(windowMs) + ") is shorter than refresh_ms (" + std::to_string(refreshMs) +
+        "); rates will cover the refresh interval instead"
     );
   }
   if (const auto& refresh = parsed->refresh_ms.value(); refresh.has_value() && *refresh == 0) {
@@ -869,7 +889,7 @@ void validateService(
     validateUpstream(*svc.upstream.value(), errors);
   }
   validateServiceAuth(name, svc, config, mergedAuths, errors, warnings);
-  validateAbrStatsHeader(name, svc.abr_stats_header.value(), errors);
+  validateAbrStatsHeader(name, svc.abr_stats_header.value(), errors, warnings);
 }
 
 std::string generateRelayID() {

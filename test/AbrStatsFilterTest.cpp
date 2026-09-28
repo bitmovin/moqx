@@ -8,7 +8,6 @@
 #include <chrono>
 #include <map>
 
-#include <folly/executors/InlineExecutor.h>
 #include <folly/portability/GMock.h>
 #include <folly/portability/GTest.h>
 #include <moxygen/test/Mocks.h>
@@ -82,13 +81,22 @@ protected:
     next_ = info(30ms, 20ms, 100'000, 25'000, 0, 0, 0);
   }
 
+  // The sampler runs inline, so the first stamp already carries a sample, and
+  // each reading is timed by `now_`, the way the session times its own.
   std::shared_ptr<AbrStatsFilter> make(config::AbrStatsHeaderConfig cfg) {
     filter_ = std::make_shared<AbrStatsFilter>(
         std::move(cfg),
-        folly::getKeepAliveToken(&folly::InlineExecutor::instance()),
-        [this]() -> std::optional<quic::TransportInfo> { return next_; },
-        downstream_,
-        [this] { return now_; }
+        [](folly::Function<void()> task) {
+          task();
+          return true;
+        },
+        [this]() -> std::optional<AbrStatsFilter::Reading> {
+          if (!next_) {
+            return std::nullopt;
+          }
+          return AbrStatsFilter::Reading{now_, *next_};
+        },
+        downstream_
     );
     return filter_;
   }
@@ -213,6 +221,49 @@ TEST_F(AbrStatsFilterTest, SubgroupObjectsAreStamped) {
   ASSERT_TRUE(wrapped.hasValue());
   ASSERT_TRUE(wrapped.value()->object(4, nullptr).hasValue());
   EXPECT_EQ(stamped(seen).size(), AbrStatsFilter::kFields);
+}
+
+// A relay behind this one may have stamped the same types; the viewer gets
+// this hop's figures, once each, and anything else on the object survives.
+TEST_F(AbrStatsFilterTest, ReplacesStatsAnUpstreamHopLeft) {
+  auto filter = make(enabled());
+  Extensions seen;
+  EXPECT_CALL(*downstream_, objectStream(_, _, _))
+      .WillOnce(Invoke([&](const ObjectHeader& h, Payload, bool) {
+        seen = h.extensions;
+        return folly::makeExpected<MoQPublishError>(folly::unit);
+      }));
+  ObjectHeader h = header(1, 0);
+  h.extensions.insertMutableExtension(Extension(kBase + 2, 999));
+  h.extensions.insertMutableExtension(Extension(kBase + 12, 77));
+  h.extensions.insertMutableExtension(Extension(0x06, 1234));
+  ASSERT_TRUE(filter->objectStream(h, nullptr).hasValue());
+  std::map<uint64_t, int> count;
+  for (const auto& e : seen.getMutableExtensions()) {
+    count[e.type]++;
+  }
+  for (size_t i = 0; i < AbrStatsFilter::kFields; i++) {
+    EXPECT_EQ(count[kBase + 2 * i], 1) << "type " << kBase + 2 * i;
+  }
+  EXPECT_EQ(count[0x06], 1);
+  EXPECT_EQ(stamped(seen)[kBase + 2], 30u);
+}
+
+// With per_group, the first object of a group carries a reading taken during
+// the group before it, not one a whole group old: every object refreshes.
+TEST_F(AbrStatsFilterTest, PerGroupStampsACurrentReading) {
+  auto filter = make(enabled(0ms, /*perGroup=*/true));
+  std::vector<uint64_t> seqs;
+  EXPECT_CALL(*downstream_, objectStream(_, _, _))
+      .WillRepeatedly(Invoke([&](const ObjectHeader& h, Payload, bool) {
+        auto m = stamped(h.extensions);
+        seqs.push_back(m.count(kBase + 12) ? m[kBase + 12] : 999);
+        return folly::makeExpected<MoQPublishError>(folly::unit);
+      }));
+  filter->objectStream(header(1, 1), nullptr); // mid-group join: unstamped, sampled
+  next_->bytesAcked += 1000;
+  filter->objectStream(header(2, 0), nullptr); // stamped with the reading just taken
+  EXPECT_THAT(seqs, ElementsAre(999, 1));
 }
 
 TEST_F(AbrStatsFilterTest, PerGroupStampsOnlyTheFirstObject) {
