@@ -9,8 +9,15 @@
 
 #include "MoqxCache.h"
 #include "relay/NullConsumers.h"
+#include <algorithm>
+<<<<<<< HEAD
+#include <vector>
+=======
+>>>>>>> 548f4711 (style: clang-format the lines this branch touches)
 #include <folly/logging/xlog.h>
+#include <iterator>
 #include <moxygen/MoQTrackProperties.h>
+#include <vector>
 
 // Maxmimum cache size / per track? Number of groups
 // Fancy: handle streaming incomplete objects (forwarder?)
@@ -20,6 +27,10 @@ using namespace moxygen;
 
 // Cap on prior-gap validation scans to avoid O(n) work for huge gaps.
 constexpr uint64_t kMaxGapValidation = 100;
+
+// Cap on how many retained objects one subscribe may replay. Bounds the inline
+// work a single late subscriber can cost the executor it landed on.
+constexpr size_t kMaxReplayObjects = 256;
 
 // On the wire an end object of 0 asks for all of the end group; every other
 // value is already one past the last object.  Everything inside the cache
@@ -1658,6 +1669,85 @@ folly::coro::Task<Publisher::FetchResult> MoqxCache::fetchImpl(
     );
   }
   co_return nullptr;
+}
+
+size_t MoqxCache::replayCachedRange(
+    const FullTrackName& ftn,
+    AbsoluteLocation start,
+    AbsoluteLocation end,
+    const std::shared_ptr<FetchConsumer>& consumer
+) {
+  if (!consumer || end < start) {
+    return 0;
+  }
+  auto trackIt = cache_.find(ftn);
+  if (trackIt == cache_.end()) {
+    return 0;
+  }
+  auto& track = *trackIt->second;
+
+  // The group map is unordered and a subscriber must see groups in ascending
+  // order, so collect the locations in range first and sort them.
+  std::vector<AbsoluteLocation> locations;
+  for (const auto& [groupID, group] : track.groups) {
+    if (groupID < start.group || groupID > end.group || !group) {
+      continue;
+    }
+    for (const auto& [objectID, entry] : group->objects) {
+      if (!entry || !entry->complete) {
+        continue;
+      }
+      AbsoluteLocation loc{groupID, objectID};
+      if (loc < start || end < loc) {
+        continue;
+      }
+      locations.push_back(loc);
+    }
+  }
+  if (locations.empty()) {
+    return 0;
+  }
+  std::sort(locations.begin(), locations.end());
+
+  // A replay writes inline on the executor that owns the subscriber, so it has
+  // to be bounded: a subscriber asking from the start of a busy track could
+  // otherwise pull every retained group at once. When the range is larger than
+  // the cap, keep the newest objects rather than the oldest -- a late joiner
+  // wants to catch up to live, and the tracks this exists for (a catalog is one
+  // object per group) are far below the cap anyway.
+  if (locations.size() > kMaxReplayObjects) {
+    XLOG(DBG1) << "Replay for " << ftn << " truncated from " << locations.size() << " to "
+               << kMaxReplayObjects << " objects";
+    locations.erase(locations.begin(), locations.end() - kMaxReplayObjects);
+  }
+
+  const auto cachedNow = now();
+  size_t written = 0;
+  for (size_t i = 0; i < locations.size(); ++i) {
+    // Re-read through getCachedObjectMaybe so a TTL-expired object is dropped
+    // here the same way the fetch path drops it, rather than replayed stale.
+    auto* entry = getCachedObjectMaybe(track, locations[i], cachedNow);
+    if (!entry) {
+      continue;
+    }
+    // Only a NORMAL object carries a payload; END_OF_GROUP and END_OF_TRACK are
+    // markers and must still be replayed, or the subscriber never learns the
+    // group ended.
+    if (entry->status == ObjectStatus::NORMAL && !entry->payload) {
+      continue;
+    }
+    auto res = publishObject(entry->status, consumer, locations[i], *entry, /*lastObject=*/false);
+    if (res.hasError()) {
+      XLOG(DBG2) << "cache replay stopped for " << ftn << " at g=" << locations[i].group
+                 << " o=" << locations[i].object << " err=" << res.error().msg;
+      break;
+    }
+    ++written;
+  }
+  // Always close the replay, including the partial case: an unfinished stream
+  // leaves the subscriber waiting on it.
+  consumer->endOfFetch();
+  return written;
 }
 
 // Returns valid CacheEntry* on cache hit, nullptr on miss.
