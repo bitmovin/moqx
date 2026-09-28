@@ -41,9 +41,11 @@ measured over, independent of the refresh (see Timing).
 
 Every field is a MoQ object extension header of an even type, so its value is
 a varint. They are in the *mutable* section: they describe a hop, not the
-object. A relay that stamps removes any values of the same types already on
-the object (from a relay upstream of it, say) before writing its own, so a
-viewer always gets the figures for its own connection, once each. The types are `base + 2n`:
+object. The relay removes any mutable values of these types that arrive from
+upstream (a publisher, or a relay behind it) from every object it forwards,
+stamped or not, and even with the header disabled; a viewer only ever sees
+this relay's figures for its own connection, once each. Immutable extensions
+are the publisher's and pass untouched. The types are `base + 2n`:
 
 | n | type (base 0x3800) | field | unit | what it represents |
 |---|---|---|---|---|
@@ -51,7 +53,7 @@ viewer always gets the figures for its own connection, once each. The types are 
 | 1 | 0x3802 | `rtt_ms` | ms | The smoothed round-trip time of the connection right now, the usual exponentially weighted estimate. |
 | 2 | 0x3804 | `min_rtt_ms` | ms | The lowest RTT seen on the connection since it opened, without ack delay (srtt has the peer's ack delay removed, so the two compare like for like): the propagation delay with an empty queue. No rolling expiry; only ever falls. Never larger than `rtt_ms`. |
 | 3 | 0x3806 | `queue_delay_ms` | ms | `rtt_ms − min_rtt_ms`, from the transmitted integer values: excess round-trip delay, most of it waiting in the bottleneck's buffer. Near 0 means the queue is empty; it rises as a buffer fills, before anything is lost, which makes it the earliest sign that the bitrate is too much for the link. It does not say which hop the queue is at. |
-| 4 | 0x3808 | `loss_permille` | ‰ | `floor(1000 × lost / sent)` over the rate window: packets declared lost in the window over ack-eliciting packets sent in it, counted by when each happened rather than by packet cohort, so a burst of late declarations can exceed 1000; it is not clamped. 0 when nothing was sent. |
+| 4 | 0x3808 | `loss_permille` | ‰ | Packets declared lost in the rate window, minus those the transport later took back (acknowledged after all), per thousand ack-eliciting packets sent in it: `min(1000, floor(1000 × lost / sent))`. Declarations and sends are counted by when they happen, so a burst of late declarations can briefly outrun sends; clamped at 1000, which already says the link is as bad as it gets. 0 when nothing was sent. |
 | 5 | 0x380A | `cwnd_util_pct` | % | `min(100, floor(100 × bytes_in_flight / cwnd))` at the reading, 0 without a window. Window use, not a share of bandwidth: under BBR the window is about twice the bandwidth-delay product, so a full link reads about **50**, not 100. `queue_delay_ms` together with `delivery_rate_bps` close to `bw_bps` is the better "link is full" signal. |
 | 6 | 0x380C | `seq` | count | Per subscription. 0 on the initial zero snapshot; goes up by one whenever any other field's *encoded* value changes (compared after integer conversion, so a change that rounds away is not news). Every object carries the newest snapshot, so the same `seq` repeats until a value moves, and a player that misses objects sees gaps. Unrelated across subscriptions. |
 | 7 | 0x380E | `delivery_rate_bps` | bits/s | Bytes acknowledged over the rate window (mvfst `bytesAcked`: whole QUIC packets, headers included, so transport throughput rather than media goodput), times 8, over the window. Short-term: falls within one window when the link degrades, where `bw_bps` fades slowly. Capped by what was offered, so it says "less than this" reliably and "more than this" never. 0 on the first reading; until a full window exists, measured over the time available. |

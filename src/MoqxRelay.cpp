@@ -1002,10 +1002,12 @@ std::optional<MoqxRelay::PreparedPublish> MoqxRelay::startPublish(
     subscriber->unsubscribe();
     return std::nullopt;
   }
+  // PUBLISH-driven delivery is never stamped, but upstream values of the
+  // statistics header's types are still stripped: no session is passed.
   subscriber->trackConsumer = wrapWithTrackStats(
       trackStats_,
       forwarder->fullTrackName(),
-      std::move(pub->consumer),
+      wrapWithAbrStats(abrStatsHeader_, nullptr, std::move(pub->consumer)),
       stats::TrackDirection::Egress
   );
   return PreparedPublish{std::move(subscriber), std::move(pub->reply)};

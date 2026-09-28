@@ -183,13 +183,19 @@ AbrStatsFilter::Sample AbrStatsFilter::derive(
         now.totalAckElicitingPacketsSent >= previous->totalAckElicitingPacketsSent
             ? now.totalAckElicitingPacketsSent - previous->totalAckElicitingPacketsSent
             : 0;
-    const uint64_t lost = now.totalPacketsMarkedLost >= previous->totalPacketsMarkedLost
-                              ? now.totalPacketsMarkedLost - previous->totalPacketsMarkedLost
-                              : 0;
-    // Declarations and sends counted by when they happened, not by packet
-    // cohort, so a burst of late declarations can exceed 1000. Reported as
-    // measured rather than clamped.
-    s.lossPermille = sent > 0 ? lost * 1000 / sent : 0;
+    // Losses the transport later took back (the packet was acked after all)
+    // are not losses. Counted by when declarations and sends happen, not by
+    // packet cohort, so a burst of late declarations can briefly exceed the
+    // packets sent; clamped to 1000, which already says the worst there is.
+    const auto netLost = [](const quic::TransportInfo& t) -> uint64_t {
+      return t.totalPacketsMarkedLost >= t.totalPacketsSpuriouslyMarkedLost
+                 ? t.totalPacketsMarkedLost - t.totalPacketsSpuriouslyMarkedLost
+                 : 0;
+    };
+    const uint64_t lostNow = netLost(now);
+    const uint64_t lostBefore = netLost(*previous);
+    const uint64_t lost = lostNow >= lostBefore ? lostNow - lostBefore : 0;
+    s.lossPermille = sent > 0 ? std::min<uint64_t>(1000, lost * 1000 / sent) : 0;
   }
   // A first reading has nothing to take a rate over: zero rather than a
   // lifetime average, so a player never mistakes a connection-long figure for
@@ -271,16 +277,11 @@ void AbrStatsFilter::refreshOnExec() {
 
 void AbrStatsFilter::stamp(moxygen::Extensions& extensions, uint64_t groupID, uint64_t objectID) {
   (void)groupID;
-  // Refresh on every object, stamped or not, so the first object of the next
-  // group carries a reading taken during this one rather than one group old.
-  maybeRefresh();
-  if (cfg_.perGroup && objectID != 0) {
-    return;
-  }
-  const auto s = sample_.copy();
-  // Mutable, because they describe a hop, not the object: a relay behind this
-  // one (or a publisher) may have stamped the same types, and this viewer
-  // wants this hop's figures, not the one upstream of it.
+  // First, whatever else happens: values of these types that arrived from
+  // upstream (a publisher, or a relay behind this one) never reach the
+  // viewer, stamped object or not. They describe some other hop, and a
+  // player reading them would take them for its own connection. Mutable
+  // extensions only: immutable ones are the publisher's and pass untouched.
   const uint64_t base = cfg_.extensionBase;
   auto& mutableExts = extensions.getMutableExtensions();
   mutableExts.erase(
@@ -294,6 +295,16 @@ void AbrStatsFilter::stamp(moxygen::Extensions& extensions, uint64_t groupID, ui
       ),
       mutableExts.end()
   );
+  if (!cfg_.enabled) {
+    return;
+  }
+  // Refresh on every object, stamped or not, so the first object of the next
+  // group carries a reading taken during this one rather than one group old.
+  maybeRefresh();
+  if (cfg_.perGroup && objectID != 0) {
+    return;
+  }
+  const auto s = sample_.copy();
   const uint64_t values[kFields] = {
       s->bwBps,
       s->rttMs,
@@ -316,11 +327,20 @@ std::shared_ptr<moxygen::TrackConsumer> wrapWithAbrStats(
     const std::shared_ptr<moxygen::MoQSession>& session,
     std::shared_ptr<moxygen::TrackConsumer> downstream
 ) {
-  if (!cfg.enabled || !session || !downstream) {
+  if (!downstream) {
     return downstream;
   }
-  if (session->getExecutor() == nullptr) {
-    return downstream;
+  if (!cfg.enabled || !session || session->getExecutor() == nullptr) {
+    // Strip only: no readings, no session, but upstream values of these
+    // types still never reach the viewer.
+    auto stripOnly = cfg;
+    stripOnly.enabled = false;
+    return std::make_shared<AbrStatsFilter>(
+        std::move(stripOnly),
+        nullptr,
+        nullptr,
+        std::move(downstream)
+    );
   }
   // Both hold the session weakly: a subscription's consumer can outlive the
   // session by a little, and a gone session simply stops the samples. Neither
