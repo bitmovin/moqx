@@ -160,8 +160,9 @@ private:
   uint64_t seq_{0};
 };
 
-// Wraps `downstream` when the header is enabled and the session is known;
-// otherwise returns it untouched, so the disabled path adds nothing.
+// Wraps `downstream` in a stamping filter when the header is enabled and the
+// session is known, and in a strip-only one otherwise: values of the header's
+// types from upstream are removed from every object either way.
 std::shared_ptr<moxygen::TrackConsumer> wrapWithAbrStats(
     const config::AbrStatsHeaderConfig& cfg,
     const std::shared_ptr<moxygen::MoQSession>& session,

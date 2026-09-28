@@ -139,13 +139,16 @@ TEST(AbrStatsDerive, MinRttIsTheOneWithoutAckDelay) {
   EXPECT_EQ(s.queueDelayMs, 15u);
 }
 
-// Declarations and sends are counted by when they happened, so a burst of
-// late declarations can pass 1000; it is reported, not clamped.
-TEST(AbrStatsDerive, LossIsNotClamped) {
+// Losses the transport later took back are not losses, and a burst of late
+// declarations that would pass 1000 is clamped to it.
+TEST(AbrStatsDerive, LossExcludesSpuriousAndIsClamped) {
   auto before = info(30ms, 20ms, 1, 0, 0, 100, 0);
-  auto after = info(30ms, 20ms, 1, 0, 0, 110, 15);
-  auto s = AbrStatsFilter::derive(after, &before, 1000ms, 1);
-  EXPECT_EQ(s.lossPermille, 1500u);
+  auto after = info(30ms, 20ms, 1, 0, 0, 200, 8);
+  after.totalPacketsSpuriouslyMarkedLost = 3;
+  EXPECT_EQ(AbrStatsFilter::derive(after, &before, 1000ms, 1).lossPermille, 50u); // (8-3)/100
+
+  auto burst = info(30ms, 20ms, 1, 0, 0, 110, 15);
+  EXPECT_EQ(AbrStatsFilter::derive(burst, &before, 1000ms, 1).lossPermille, 1000u);
 }
 
 TEST(AbrStatsDerive, NoControllerEstimateIsZeroNotMissing) {
@@ -407,8 +410,31 @@ TEST_F(AbrStatsFilterTest, AGoneConnectionKeepsTheLastSample) {
   EXPECT_THAT(rtts, ElementsAre(30, 30));
 }
 
-TEST_F(AbrStatsFilterTest, DisabledOrSessionlessReturnsTheConsumerItself) {
+// Disabled, or without a session (the PUBLISH path), nothing is stamped, but
+// upstream values of these types are still stripped; everything else passes.
+TEST_F(AbrStatsFilterTest, UnstampedPathsStillStripTheseTypes) {
   config::AbrStatsHeaderConfig off;
-  EXPECT_EQ(wrapWithAbrStats(off, nullptr, downstream_), downstream_);
-  EXPECT_EQ(wrapWithAbrStats(enabled(), nullptr, downstream_), downstream_);
+  for (auto wrapped :
+       {wrapWithAbrStats(off, nullptr, downstream_),
+        wrapWithAbrStats(enabled(), nullptr, downstream_)}) {
+    ASSERT_NE(wrapped, downstream_);
+    Extensions seen;
+    EXPECT_CALL(*downstream_, objectStream(_, _, _))
+        .WillOnce(Invoke([&](const ObjectHeader& h, Payload, bool) {
+          seen = h.extensions;
+          return folly::makeExpected<MoQPublishError>(folly::unit);
+        }));
+    ObjectHeader h = header(1, 0);
+    h.extensions.insertMutableExtension(Extension(kBase + 2, 999));
+    h.extensions.insertMutableExtension(Extension(kBase + 12, 7));
+    h.extensions.insertMutableExtension(Extension(0x06, 1234));
+    h.extensions.insertImmutableExtension(Extension(kBase + 4, 5));
+    ASSERT_TRUE(wrapped->objectStream(h, nullptr).hasValue());
+    auto m = stamped(seen);
+    EXPECT_EQ(m.count(kBase + 2), 0u);
+    EXPECT_EQ(m.count(kBase + 12), 0u);
+    EXPECT_EQ(m[0x06], 1234u);
+    // Immutable extensions are the publisher's and pass untouched.
+    EXPECT_EQ(seen.getImmutableExtensions().size(), 1u);
+  }
 }
