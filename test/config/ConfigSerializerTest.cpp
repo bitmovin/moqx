@@ -66,7 +66,8 @@ static_assert(
 );
 static_assert(
     rfl::internal::num_fields<AbrStatsHeaderConfig> == 5,
-    "AbrStatsHeaderConfig changed — update serializeConfig()");
+    "AbrStatsHeaderConfig changed — update serializeConfig()"
+);
 static_assert(
     rfl::internal::num_fields<ServiceConfig::MatchEntry> == 2,
     "MatchEntry changed — update serializeMatch()"
@@ -226,7 +227,7 @@ TEST(ConfigSerializerTest, VisitsAllSections) {
   EXPECT_EQ(sink.scalars["services.default.cache.enabled"], "true");
   EXPECT_EQ(sink.scalars["services.default.cache.max_cached_tracks"], "100");
   EXPECT_EQ(sink.scalars["services.default.abr_stats_header.enabled"], "false");
-  EXPECT_EQ(sink.scalars["services.default.abr_stats_header.extension_base"], "16384");
+  EXPECT_EQ(sink.scalars["services.default.abr_stats_header.extension_base"], "14336");
   EXPECT_EQ(sink.scalars["services.default.abr_stats_header.refresh_ms"], "1000");
   EXPECT_EQ(sink.scalars["services.default.abr_stats_header.rate_window_ms"], "1000");
   EXPECT_EQ(sink.scalars["services.default.match.*.path.prefix"], "/");

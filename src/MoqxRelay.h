@@ -112,12 +112,8 @@ public:
   // The per-viewer statistics header (relay/AbrStatsFilter.h). Read when a
   // SUBSCRIBE-driven subscription is set up; a change after that reaches only
   // later subscriptions.
-  void setAbrStatsHeader(config::AbrStatsHeaderConfig cfg) {
-    abrStatsHeader_ = std::move(cfg);
-  }
-  const config::AbrStatsHeaderConfig& abrStatsHeader() const {
-    return abrStatsHeader_;
-  }
+  void setAbrStatsHeader(config::AbrStatsHeaderConfig cfg) { abrStatsHeader_ = std::move(cfg); }
+  const config::AbrStatsHeaderConfig& abrStatsHeader() const { return abrStatsHeader_; }
 
   // Set to 0 until pause/resume forwarding callbacks are wired in PropertyRanking;
   // a non-zero value without those callbacks is just topN+N with no benefit.

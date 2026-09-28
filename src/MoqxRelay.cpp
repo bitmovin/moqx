@@ -8,6 +8,7 @@
  */
 
 #include "MoqxRelay.h"
+#include "relay/AbrStatsFilter.h"
 #include "relay/ChannelSubscriber.h"
 #include "relay/CrossExecFilter.h"
 #include "relay/CrossExecForwarderCallback.h"
@@ -20,7 +21,6 @@
 #include "relay/SubscriberCrossExecFilter.h"
 #include "relay/TrackEventCallback.h"
 #include "relay/TrackStatsFilter.h"
-#include "relay/AbrStatsFilter.h"
 #include "relay/WeakRelayForwarderCallback.h"
 #include <folly/Random.h>
 #include <folly/container/F14Set.h>

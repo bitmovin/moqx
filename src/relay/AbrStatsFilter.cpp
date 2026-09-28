@@ -40,9 +40,8 @@ public:
       moxygen::Extensions extensions = moxygen::noExtensions()
   ) override {
     parent_->stamp(extensions, groupID_, objectID);
-    return downstream_->beginObject(
-        objectID, length, std::move(initialPayload), std::move(extensions)
-    );
+    return downstream_
+        ->beginObject(objectID, length, std::move(initialPayload), std::move(extensions));
   }
 
 private:
@@ -64,15 +63,25 @@ bool sameReading(const quic::TransportInfo& a, const quic::TransportInfo& b) {
     return std::nullopt;
   };
   const auto minRtt = [](const quic::TransportInfo& t) -> std::optional<int64_t> {
+    if (t.maybeMinRttNoAckDelay.has_value()) {
+      return t.maybeMinRttNoAckDelay.value().count();
+    }
     if (t.maybeMinRtt.has_value()) {
       return t.maybeMinRtt.value().count();
     }
     return std::nullopt;
   };
   return a.srtt == b.srtt && minRtt(a) == minRtt(b) && a.congestionWindow == b.congestionWindow &&
-      a.bytesInFlight == b.bytesInFlight && a.bytesAcked == b.bytesAcked &&
-      a.totalAckElicitingPacketsSent == b.totalAckElicitingPacketsSent &&
-      a.totalPacketsMarkedLost == b.totalPacketsMarkedLost && bw(a) == bw(b);
+         a.bytesInFlight == b.bytesInFlight && a.bytesAcked == b.bytesAcked &&
+         a.totalAckElicitingPacketsSent == b.totalAckElicitingPacketsSent &&
+         a.totalPacketsMarkedLost == b.totalPacketsMarkedLost && bw(a) == bw(b);
+}
+
+// Whether two samples carry the same values on the wire, seq aside.
+bool sameValues(const AbrStatsFilter::Sample& a, const AbrStatsFilter::Sample& b) {
+  return a.bwBps == b.bwBps && a.deliveryRateBps == b.deliveryRateBps && a.rttMs == b.rttMs &&
+         a.minRttMs == b.minRttMs && a.queueDelayMs == b.queueDelayMs &&
+         a.lossPermille == b.lossPermille && a.cwndUtilPct == b.cwndUtilPct;
 }
 
 int64_t nowNs() {
@@ -86,13 +95,15 @@ int64_t nowNs() {
 
 AbrStatsFilter::AbrStatsFilter(
     config::AbrStatsHeaderConfig cfg,
-    folly::Executor::KeepAlive<> sampleExec,
+    Scheduler schedule,
     Reader reader,
-    std::shared_ptr<moxygen::TrackConsumer> downstream,
-    Clock clock
+    std::shared_ptr<moxygen::TrackConsumer> downstream
 )
     : moxygen::TrackConsumerFilter(std::move(downstream)), cfg_(std::move(cfg)),
-      sampleExec_(std::move(sampleExec)), reader_(std::move(reader)), clock_(std::move(clock)) {}
+      schedule_(std::move(schedule)), reader_(std::move(reader)),
+      // A complete all-zero snapshot with seq 0 from the start, so the first
+      // object of a subscription is stamped too; the first reading replaces it.
+      sample_(std::make_shared<const Sample>()) {}
 
 folly::Expected<std::shared_ptr<moxygen::SubgroupConsumer>, moxygen::MoQPublishError>
 AbrStatsFilter::beginSubgroup(
@@ -139,18 +150,26 @@ AbrStatsFilter::Sample AbrStatsFilter::derive(
   Sample s;
   s.seq = seq;
   s.rttMs = millis(now.srtt);
-  // mvfst keeps the minimum RTT as an optional; before the first reading of
-  // it the smoothed RTT is the best floor there is.
-  const uint64_t minRttMs = now.maybeMinRtt.has_value() ? millis(now.maybeMinRtt.value()) : s.rttMs;
+  // The minimum without ack delay, because srtt has the peer's ack delay
+  // taken out and the two are subtracted: the minimum with ack delay would
+  // make queue_delay read low. mvfst keeps both as optionals; before the
+  // first reading the smoothed RTT is the best floor there is.
+  uint64_t minRttMs = s.rttMs;
+  if (now.maybeMinRttNoAckDelay.has_value()) {
+    minRttMs = millis(now.maybeMinRttNoAckDelay.value());
+  } else if (now.maybeMinRtt.has_value()) {
+    minRttMs = millis(now.maybeMinRtt.value());
+  }
   s.minRttMs = std::min(minRttMs, s.rttMs);
   s.queueDelayMs = s.rttMs - s.minRttMs;
   s.cwndUtilPct = now.congestionWindow > 0
-      ? std::min<uint64_t>(100, now.bytesInFlight * 100 / now.congestionWindow)
-      : 0;
+                      ? std::min<uint64_t>(100, now.bytesInFlight * 100 / now.congestionWindow)
+                      : 0;
   // The controller's own estimate; BBR fills it, Cubic and NewReno leave it
   // empty, and an empty one is 0 on the wire rather than a missing field, so a
-  // player always finds the same eight.
-  if (now.maybeCCState.has_value() && now.maybeCCState.value().maybeBandwidthBitsPerSec.has_value()) {
+  // stamped object always carries all ten.
+  if (now.maybeCCState.has_value() &&
+      now.maybeCCState.value().maybeBandwidthBitsPerSec.has_value()) {
     s.bwBps = now.maybeCCState.value().maybeBandwidthBitsPerSec.value();
   }
   if (previous != nullptr && sincePrevious.count() > 0) {
@@ -160,13 +179,17 @@ AbrStatsFilter::Sample AbrStatsFilter::derive(
     const uint64_t acked =
         now.bytesAcked >= previous->bytesAcked ? now.bytesAcked - previous->bytesAcked : 0;
     s.deliveryRateBps = acked * 8 * 1000 / static_cast<uint64_t>(sincePrevious.count());
-    const uint64_t sent = now.totalAckElicitingPacketsSent >= previous->totalAckElicitingPacketsSent
-        ? now.totalAckElicitingPacketsSent - previous->totalAckElicitingPacketsSent
-        : 0;
+    const uint64_t sent =
+        now.totalAckElicitingPacketsSent >= previous->totalAckElicitingPacketsSent
+            ? now.totalAckElicitingPacketsSent - previous->totalAckElicitingPacketsSent
+            : 0;
     const uint64_t lost = now.totalPacketsMarkedLost >= previous->totalPacketsMarkedLost
-        ? now.totalPacketsMarkedLost - previous->totalPacketsMarkedLost
-        : 0;
-    s.lossPermille = sent > 0 ? std::min<uint64_t>(1000, lost * 1000 / sent) : 0;
+                              ? now.totalPacketsMarkedLost - previous->totalPacketsMarkedLost
+                              : 0;
+    // Declarations and sends counted by when they happened, not by packet
+    // cohort, so a burst of late declarations can exceed 1000. Reported as
+    // measured rather than clamped.
+    s.lossPermille = sent > 0 ? lost * 1000 / sent : 0;
   }
   // A first reading has nothing to take a rate over: zero rather than a
   // lifetime average, so a player never mistakes a connection-long figure for
@@ -186,23 +209,33 @@ void AbrStatsFilter::maybeRefresh() {
   if (!refreshPending_.compare_exchange_strong(expected, true)) {
     return;
   }
-  sampleExec_->add([weak = weak_from_this()] {
+  const bool scheduled = schedule_([weak = weak_from_this()] {
     if (auto self = weak.lock()) {
       self->refreshOnExec();
     }
   });
+  if (!scheduled) {
+    // The session is gone; the last sample stays, and the next object may ask
+    // again rather than finding a refresh forever pending.
+    refreshPending_.store(false, std::memory_order_release);
+  }
 }
 
 void AbrStatsFilter::refreshOnExec() {
-  const auto now = clock_();
-  if (auto info = reader_()) {
+  if (auto reading = reader_()) {
+    // Rates are taken between the times the transport was read. The session
+    // caches one reading for every caller (this subscription's siblings on
+    // the same session among them), so the time this filter asked says
+    // nothing about the age of what it got.
+    const auto now = reading->at;
+    const quic::TransportInfo* info = &reading->info;
     // A reading that did not move is not a new sample: the sequence number
     // stays. The session hands out one cached reading per its own interval,
     // so asking more often than that would otherwise count repeats as changes.
     if (history_.empty() || !sameReading(*info, history_.back().info)) {
       Sample next;
       if (history_.empty()) {
-        next = derive(*info, nullptr, std::chrono::milliseconds(0), 0);
+        next = derive(*info, nullptr, std::chrono::milliseconds(0), seq_);
       } else {
         // The rates run against the newest reading at least a window old,
         // so they are over the window rather than over one refresh, or
@@ -216,15 +249,20 @@ void AbrStatsFilter::refreshOnExec() {
           }
         }
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - base->at);
-        next = derive(*info, &base->info, elapsed, seq_ + 1);
+        next = derive(*info, &base->info, elapsed, seq_);
       }
-      seq_ = next.seq;
       history_.push_back(Reading{now, *info});
       // Keep exactly one reading that is at least a window old, drop the rest.
       while (history_.size() > 1 && now - history_[1].at >= cfg_.rateWindow) {
         history_.pop_front();
       }
-      *sample_.wlock() = std::make_shared<const Sample>(next);
+      // The sequence moves when a value a player sees changes, compared after
+      // integer conversion, so a raw change that rounds away is not news.
+      auto published = sample_.copy();
+      if (!sameValues(next, *published)) {
+        next.seq = ++seq_;
+        *sample_.wlock() = std::make_shared<const Sample>(next);
+      }
     }
   }
   lastSampledAtNs_.store(nowNs(), std::memory_order_relaxed);
@@ -233,17 +271,29 @@ void AbrStatsFilter::refreshOnExec() {
 
 void AbrStatsFilter::stamp(moxygen::Extensions& extensions, uint64_t groupID, uint64_t objectID) {
   (void)groupID;
+  // Refresh on every object, stamped or not, so the first object of the next
+  // group carries a reading taken during this one rather than one group old.
+  maybeRefresh();
   if (cfg_.perGroup && objectID != 0) {
     return;
   }
-  maybeRefresh();
   const auto s = sample_.copy();
-  if (!s) {
-    return;
-  }
-  // Mutable, because a relay may add them and a downstream relay may replace
-  // them: they describe a hop, not the object.
+  // Mutable, because they describe a hop, not the object: a relay behind this
+  // one (or a publisher) may have stamped the same types, and this viewer
+  // wants this hop's figures, not the one upstream of it.
   const uint64_t base = cfg_.extensionBase;
+  auto& mutableExts = extensions.getMutableExtensions();
+  mutableExts.erase(
+      std::remove_if(
+          mutableExts.begin(),
+          mutableExts.end(),
+          [base](const moxygen::Extension& ext) {
+            return ext.type >= base && ext.type <= extensionType(base, kFields - 1) &&
+                   (ext.type - base) % 2 == 0;
+          }
+      ),
+      mutableExts.end()
+  );
   const uint64_t values[kFields] = {
       s->bwBps,
       s->rttMs,
@@ -254,6 +304,7 @@ void AbrStatsFilter::stamp(moxygen::Extensions& extensions, uint64_t groupID, ui
       s->seq,
       s->deliveryRateBps,
       static_cast<uint64_t>(cfg_.rateWindow.count()),
+      static_cast<uint64_t>(cfg_.refresh.count()),
   };
   for (size_t i = 0; i < kFields; i++) {
     extensions.insertMutableExtension(moxygen::Extension(extensionType(base, i), values[i]));
@@ -268,24 +319,39 @@ std::shared_ptr<moxygen::TrackConsumer> wrapWithAbrStats(
   if (!cfg.enabled || !session || !downstream) {
     return downstream;
   }
-  auto* exec = session->getExecutor();
-  if (exec == nullptr) {
+  if (session->getExecutor() == nullptr) {
     return downstream;
   }
-  // The session serves one cached reading per its own interval; ours is no
-  // use if it is shorter than that. It only ever lowers the session's.
-  session->setTransportInfoCacheDuration(cfg.refresh);
-  // The reader holds the session weakly: a subscription's consumer can outlive
-  // the session by a little, and a gone session simply stops the samples.
+  // Both hold the session weakly: a subscription's consumer can outlive the
+  // session by a little, and a gone session simply stops the samples. Neither
+  // holds its executor, whose thread must be free to stop with the relay.
   std::weak_ptr<moxygen::MoQSession> weak = session;
-  AbrStatsFilter::Reader reader = [weak]() -> std::optional<quic::TransportInfo> {
-    if (auto s = weak.lock()) {
-      return s->getTransportInfo();
+  AbrStatsFilter::Scheduler schedule = [weak](folly::Function<void()> task) {
+    auto s = weak.lock();
+    if (!s || s->getExecutor() == nullptr) {
+      return false;
     }
-    return std::nullopt;
+    s->getExecutor()->add(std::move(task));
+    return true;
+  };
+  // Runs on the session's executor, the only thread that may touch the
+  // session's transport-info cache, so the interval is set here and not on
+  // the thread that built the subscription. It only ever lowers the session's.
+  const auto refresh = cfg.refresh;
+  AbrStatsFilter::Reader reader = [weak, refresh]() -> std::optional<AbrStatsFilter::Reading> {
+    auto s = weak.lock();
+    if (!s) {
+      return std::nullopt;
+    }
+    s->setTransportInfoCacheDuration(refresh);
+    auto timed = s->getTimedTransportInfo();
+    return AbrStatsFilter::Reading{timed.takenAt, std::move(timed.info)};
   };
   return std::make_shared<AbrStatsFilter>(
-      cfg, exec->getKeepAlive(), std::move(reader), std::move(downstream)
+      cfg,
+      std::move(schedule),
+      std::move(reader),
+      std::move(downstream)
   );
 }
 

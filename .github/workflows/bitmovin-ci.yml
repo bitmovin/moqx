@@ -21,8 +21,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Upstream's formatting gate, which its own PR workflow runs and which is
+  # gated off the fork along with the rest of that workflow.
+  check-format:
+    if: github.repository_owner == 'bitmovin'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install clang-format
+        run: pip install clang-format==19.1.7
+      - uses: astral-sh/setup-uv@v6
+      - name: Check formatting
+        run: bash scripts/dev/format.sh --check
+
   linux:
     if: github.repository_owner == 'bitmovin'
+    needs: [check-format]
     runs-on: ubuntu-22.04
     timeout-minutes: 180
     steps:

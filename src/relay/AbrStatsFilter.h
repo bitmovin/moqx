@@ -13,7 +13,7 @@
 #include <memory>
 #include <optional>
 
-#include <folly/Executor.h>
+#include <folly/Function.h>
 #include <folly/Synchronized.h>
 #include <moxygen/MoQFilters.h>
 #include <moxygen/MoQSession.h>
@@ -38,15 +38,18 @@ namespace openmoq::moqx {
 // output.
 //
 // The statistics are the session's transport info, which only its own thread
-// may read. The data path may run on another thread (a forwarder hop lands
-// wherever the subscriber's executor is), so this never reads the session
-// directly: when a sample is due it schedules one on the session's executor,
-// and stamps from the latest sample that landed. The first objects after a
-// subscription open go out unstamped, for the few milliseconds until it does.
+// may read or configure. The data path may run on another thread (a forwarder
+// hop lands wherever the subscriber's executor is), so this never touches the
+// session directly: when a sample is due it schedules one on the session's
+// executor, and stamps from the latest sample that landed. The first objects
+// after a subscription open go out unstamped, for the few milliseconds until
+// it does. Rates are timed by when the transport was read, not by when this
+// filter asked: the session caches one reading for all its callers.
 //
-// A sequence number goes up with every new sample, and a sample is new only
-// when the reading changed, so a player can tell a fresh reading from a
-// repeat without parsing the rest. Two bandwidth figures:
+// A sequence number goes up whenever a value a player sees changes (compared
+// after integer conversion), so a player can tell a fresh reading from a
+// repeat without parsing the rest. Every object carries the newest snapshot,
+// starting with an all-zero one at seq 0 before the first reading lands. Two bandwidth figures:
 // bw_bps is the congestion controller's estimate (BBR's max delivery rate over
 // the last few round trips, stable but slow to fall), delivery_rate_bps is what
 // this relay measured over the last interval (bytes acked per second, which
@@ -56,17 +59,24 @@ namespace openmoq::moqx {
 class AbrStatsFilter : public moxygen::TrackConsumerFilter,
                        public std::enable_shared_from_this<AbrStatsFilter> {
 public:
-  // Reads the connection's transport info; runs on `sampleExec`. Nullopt when
-  // the connection is gone, which leaves the last sample in place.
-  using Reader = std::function<std::optional<quic::TransportInfo>()>;
-  using Clock = std::function<std::chrono::steady_clock::time_point()>;
+  // One reading of the connection and when the transport produced it.
+  struct Reading {
+    std::chrono::steady_clock::time_point at;
+    quic::TransportInfo info;
+  };
+  // Reads the connection; runs on the session's executor. Nullopt when the
+  // connection is gone, which leaves the last sample in place.
+  using Reader = std::function<std::optional<Reading>()>;
+  // Runs a task on the session's executor, or returns false when the session
+  // is gone. Not an executor handle: holding one would keep the session's
+  // thread alive past its session, which the relay's shutdown does not expect.
+  using Scheduler = std::function<bool(folly::Function<void()>)>;
 
   AbrStatsFilter(
       config::AbrStatsHeaderConfig cfg,
-      folly::Executor::KeepAlive<> sampleExec,
+      Scheduler schedule,
       Reader reader,
-      std::shared_ptr<moxygen::TrackConsumer> downstream,
-      Clock clock = [] { return std::chrono::steady_clock::now(); }
+      std::shared_ptr<moxygen::TrackConsumer> downstream
   );
   ~AbrStatsFilter() override = default;
 
@@ -111,29 +121,24 @@ public:
       uint64_t seq
   );
 
-  // Appends the current sample to `extensions` if this object is due a stamp
-  // (every object, or the first of each group when `perGroup`), and asks for a
-  // fresh sample when the last one is older than the refresh interval.
+  // Asks for a fresh sample when the last one is older than the refresh
+  // interval, then writes the current sample into `extensions` if this object
+  // is due a stamp (every object, or the first of each group when `perGroup`),
+  // replacing any values of the same types an upstream hop left there.
   void stamp(moxygen::Extensions& extensions, uint64_t groupID, uint64_t objectID);
 
   // Extension types, in field order: bw_bps, rtt_ms, min_rtt_ms,
   // queue_delay_ms, loss_permille, cwnd_util_pct, seq, delivery_rate_bps,
-  // rate_window_ms. All even: varints. The last two came after the first
-  // seven were agreed, so they take the next slots rather than reordering.
-  // rate_window_ms is configuration, not a reading: it rides along so a
-  // player knows what interval the two rates cover without being told.
-  static constexpr size_t kFields = 9;
-  static uint64_t extensionType(uint64_t base, size_t field) {
-    return base + 2 * field;
-  }
+  // rate_window_ms, refresh_ms. All even: varints. The last three came after
+  // the first seven were agreed, so they take the next slots rather than
+  // reordering. The last two are configuration, not readings: they ride along
+  // so a player sizes its logic to the relay's settings without being told.
+  static constexpr size_t kFields = 10;
+  static uint64_t extensionType(uint64_t base, size_t field) { return base + 2 * field; }
 
-  const config::AbrStatsHeaderConfig& cfg() const {
-    return cfg_;
-  }
+  const config::AbrStatsHeaderConfig& cfg() const { return cfg_; }
   // The sample objects are being stamped with, or nullptr before the first.
-  std::shared_ptr<const Sample> currentSample() const {
-    return sample_.copy();
-  }
+  std::shared_ptr<const Sample> currentSample() const { return sample_.copy(); }
 
 private:
   void maybeRefresh();
@@ -141,7 +146,7 @@ private:
   void refreshOnExec();
 
   config::AbrStatsHeaderConfig cfg_;
-  folly::Executor::KeepAlive<> sampleExec_;
+  Scheduler schedule_;
   Reader reader_;
 
   // Shared between the data path and the sampler.
@@ -151,11 +156,6 @@ private:
 
   // Sampler-thread state: the readings that changed, newest last, kept back
   // to one reading at least `rateWindow` old so a rate always has a base.
-  struct Reading {
-    std::chrono::steady_clock::time_point at;
-    quic::TransportInfo info;
-  };
-  Clock clock_;
   std::deque<Reading> history_;
   uint64_t seq_{0};
 };

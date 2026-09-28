@@ -153,6 +153,25 @@ Duplicate (authority, path) combinations across all services are rejected.
 picoquic. Prefix path rules will generate a warning and connections may fail to
 route correctly.
 
+### Per-viewer ABR statistics
+
+`abr_stats_header` stamps every object a subscriber receives with its own
+connection's statistics (bandwidth estimate, delivery rate, RTT, queueing
+delay, loss, congestion-window use), as mutable object extension headers, so a
+player can adapt its bitrate from them. Off by default. Fields, units and
+timing are in [abr-stats-header.md](abr-stats-header.md).
+
+```yaml
+services:
+  live:
+    abr_stats_header:
+      enabled: true          # default: false
+      extension_base: 14336  # default 0x3800; even; fields at base, base+2, ... base+18
+      refresh_ms: 100        # default: 1000; how often a subscriber's reading is re-read
+      rate_window_ms: 1000   # default: 1000; window the two rates are taken over
+      per_group: false       # default: false; true stamps only the first object of each group
+```
+
 ---
 
 ## Authentication and Authorization
