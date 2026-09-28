@@ -117,10 +117,12 @@ public:
   void stamp(moxygen::Extensions& extensions, uint64_t groupID, uint64_t objectID);
 
   // Extension types, in field order: bw_bps, rtt_ms, min_rtt_ms,
-  // queue_delay_ms, loss_permille, cwnd_util_pct, seq, delivery_rate_bps.
-  // All even: varints. The eighth came after the first seven were agreed, so
-  // it takes the next slot rather than reordering them.
-  static constexpr size_t kFields = 8;
+  // queue_delay_ms, loss_permille, cwnd_util_pct, seq, delivery_rate_bps,
+  // rate_window_ms. All even: varints. The last two came after the first
+  // seven were agreed, so they take the next slots rather than reordering.
+  // rate_window_ms is configuration, not a reading: it rides along so a
+  // player knows what interval the two rates cover without being told.
+  static constexpr size_t kFields = 9;
   static uint64_t extensionType(uint64_t base, size_t field) {
     return base + 2 * field;
   }

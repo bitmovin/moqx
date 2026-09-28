@@ -346,7 +346,7 @@ struct ParsedAbrStatsHeaderConfig {
       std::optional<bool>>
       enabled;
   rfl::Description<
-      "First extension type of the eight fields (base, base+2, ... base+14). "
+      "First extension type of the nine fields (base, base+2, ... base+16). "
       "Must be even. Default: 16384 (0x4000).",
       std::optional<uint64_t>>
       extension_base;

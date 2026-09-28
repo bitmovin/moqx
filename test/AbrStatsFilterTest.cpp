@@ -151,7 +151,7 @@ TEST(AbrStatsDerive, NoCwndMeansNoUtilisation) {
 // stamping
 // ---------------------------------------------------------------------------
 
-TEST_F(AbrStatsFilterTest, StampsEightVarintsOnAnObjectStream) {
+TEST_F(AbrStatsFilterTest, StampsNineVarintsOnAnObjectStream) {
   auto filter = make(enabled());
   Extensions seen;
   EXPECT_CALL(*downstream_, objectStream(_, _, _))
@@ -171,6 +171,7 @@ TEST_F(AbrStatsFilterTest, StampsEightVarintsOnAnObjectStream) {
   EXPECT_EQ(m[kBase + 10], 25u);       // cwnd_util_pct
   EXPECT_EQ(m[kBase + 12], 0u);        // seq
   EXPECT_EQ(m[kBase + 14], 0u);        // delivery_rate_bps: first sample
+  EXPECT_EQ(m[kBase + 16], 1000u);     // rate_window_ms: the configured window
   // Every type is even: a varint, never a byte string.
   for (const auto& [type, _] : m) {
     EXPECT_EQ(type % 2, 0u);

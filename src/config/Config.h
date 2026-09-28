@@ -64,7 +64,7 @@ struct CacheConfig {
 // subscription costs a sample of the transport info per refresh.
 struct AbrStatsHeaderConfig {
   bool enabled{false};
-  // First extension type; the eight fields take base, base+2, ... base+14,
+  // First extension type; the nine fields take base, base+2, ... base+16,
   // all even so each carries a varint. Must be even.
   uint64_t extensionBase{0x4000};
   // How often one subscriber's reading is refreshed; the session's own
