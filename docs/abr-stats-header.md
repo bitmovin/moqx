@@ -1,8 +1,8 @@
 # Per-viewer connection statistics on objects (`abr_stats_header`)
 
 When enabled on a service, the relay stamps every object it sends to a
-subscriber with eight extension headers describing the QUIC connection to
-*that* subscriber. A player can run bitrate adaptation from them without
+subscriber with nine extension headers: eight describing the QUIC connection
+to *that* subscriber, and one saying what interval the rates cover. A player can run bitrate adaptation from them without
 measuring anything itself: the relay is the sender, so it is the one that
 knows how the path is doing.
 
@@ -46,8 +46,9 @@ its own. The types are `base + 2n`:
 | 5 | 0x400A | `cwnd_util_pct` | % | Bytes in flight as a percentage of the congestion window, 0 to 100. Near 100 means the sender is using all the window the controller allows: the network, not the media bitrate, is the limit. Well below 100 means the media is smaller than what the link would carry. |
 | 6 | 0x400C | `seq` | count | A number that goes up by one every time the relay took a reading that differed from the previous one. The same reading repeated on several objects carries the same `seq`. Use it to run your logic once per reading, and to notice a connection where the figures stopped moving. Starts at 0 on the subscription. |
 | 7 | 0x400E | `delivery_rate_bps` | bits/s | What the relay actually delivered to this viewer over the rate window: bytes acknowledged in the window, over the window. Short-term. It falls within one window when the link degrades, where `bw_bps` fades slowly. Like `bw_bps` it cannot exceed what was sent, so it says "less than this" reliably and "more than this" never. 0 on the first reading of a subscription, when there is nothing to measure over yet. |
+| 8 | 0x4010 | `rate_window_ms` | ms | The window `delivery_rate_bps` and `loss_permille` are measured over: the relay's `rate_window_ms` setting. Constant for a subscription. Carried so a player can size its own logic to the window without being configured with it. |
 
-All eight are always present when the header is enabled; a value the relay
+All nine are always present when the header is enabled; a value the relay
 does not have is 0, never a missing field.
 
 ## Reading them together
@@ -106,7 +107,8 @@ few milliseconds before the first reading lands.
 and `loss_permille`. Both are measured between the current reading and the
 newest reading at least a window older, so they always cover at least the
 window and slide with each reading; while a subscription is younger than the
-window they cover what there is. Independent of the refresh on purpose: a
+window they cover what there is. The window itself is on every object as
+`rate_window_ms`. Independent of the refresh on purpose: a
 100 ms refresh with rates over 100 ms would make one lost packet read as
 40‰ and one late acknowledgement swing the rate by a third. Both rates are
 over the same window, so they describe the same second.

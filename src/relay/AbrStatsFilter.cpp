@@ -253,6 +253,7 @@ void AbrStatsFilter::stamp(moxygen::Extensions& extensions, uint64_t groupID, ui
       s->cwndUtilPct,
       s->seq,
       s->deliveryRateBps,
+      static_cast<uint64_t>(cfg_.rateWindow.count()),
   };
   for (size_t i = 0; i < kFields; i++) {
     extensions.insertMutableExtension(moxygen::Extension(extensionType(base, i), values[i]));
