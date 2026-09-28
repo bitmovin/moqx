@@ -1,0 +1,58 @@
+# Builds the relay image this fork ships and pushes it to GHCR under the fork.
+#
+# Runs on a tag like `v0.3.5-bm.1`: an upstream release plus our patch stack,
+# numbered per rebuild. The image is `ghcr.io/bitmovin/moqx:<tag>`; the relay
+# box pins that exact tag in its compose override. amd64 only, because the box
+# is. The moxygen stage comes from cmake/dependencies.cmake's pin: a fork
+# revision has no published prebuilt, so the first build compiles moxygen and
+# folly (about an hour on a hosted runner) and the registry buildcache carries
+# that layer to every build after it until the pin moves.
+name: bitmovin image
+
+on:
+  push:
+    tags: ["v*-bm.*"]
+  workflow_dispatch:
+
+jobs:
+  image:
+    if: github.repository_owner == 'bitmovin'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - uses: docker/setup-buildx-action@v4
+      - name: Tag
+        id: tag
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=main-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build and push
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}"
+          TAG="${{ steps.tag.outputs.tag }}"
+          docker buildx build -f docker/Dockerfile --target relay --push \
+            --secret id=github_token,env=GITHUB_TOKEN \
+            --build-arg MOQX_VERSION_STRING="$TAG" \
+            --cache-from "type=registry,ref=${IMAGE}/buildcache:amd64" \
+            --cache-to "type=registry,ref=${IMAGE}/buildcache:amd64,mode=max" \
+            -t "${IMAGE}:${TAG}" \
+            .
+      - name: Verify the stamped version and linkage
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}"
+          docker pull "$IMAGE"
+          if docker run --rm --entrypoint ldd "$IMAGE" /usr/local/bin/moqx 2>&1 | grep -q "not found"; then
+            echo "ERROR: missing shared libraries" >&2; exit 1
+          fi
+          docker run --rm --entrypoint /usr/local/bin/moqx "$IMAGE" --version

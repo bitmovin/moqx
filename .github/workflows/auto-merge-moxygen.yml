@@ -22,6 +22,8 @@ permissions:
 
 jobs:
   sync:
+    # Upstream's pin rewriter; a fork keeps its own pin.
+    if: github.repository == 'openmoq/moqx'
     runs-on: ubuntu-22.04
     if: startsWith(github.event.workflow_run.head_branch, 'sync-moxygen/')
     steps:

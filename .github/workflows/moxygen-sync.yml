@@ -31,6 +31,8 @@ permissions:
 
 jobs:
   sync:
+    # Upstream's pin rewriter; a fork keeps its own pin.
+    if: github.repository == 'openmoq/moqx'
     runs-on: ubuntu-22.04
     steps:
       # ── Generate GitHub App token (bot identity for PRs) ──
