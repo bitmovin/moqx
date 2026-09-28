@@ -22,10 +22,9 @@ permissions:
 
 jobs:
   sync:
-    # Upstream's pin rewriter; a fork keeps its own pin.
-    if: github.repository == 'openmoq/moqx'
     runs-on: ubuntu-22.04
-    if: startsWith(github.event.workflow_run.head_branch, 'sync-moxygen/')
+    # Only upstream rewrites the moxygen pin; a fork keeps its own.
+    if: github.repository == 'openmoq/moqx' && startsWith(github.event.workflow_run.head_branch, 'sync-moxygen/')
     steps:
       - name: Find sync PR
         id: find-pr
