@@ -20,6 +20,10 @@ permissions:
 
 jobs:
   check-format:
+    # Upstream's PR lanes include self-hosted runners a fork does not have;
+    # the fork's PRs are built by bitmovin-ci.yml. build and conformance need
+    # this job, so they are skipped with it.
+    if: github.repository == 'openmoq/moqx'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
