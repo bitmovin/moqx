@@ -51,6 +51,7 @@ MoqxRelayContext::MoqxRelayContext(
           MoqxRelay::kDefaultIdleTimeout,
           MoqxRelay::kDefaultActivityThreshold
       );
+      relay->setAbrStatsHeader(svc.abrStatsHeader);
       services_.emplace(
           name,
           ServiceEntry{
@@ -72,6 +73,7 @@ MoqxRelayContext::MoqxRelayContext(
           MoqxRelay::kDefaultIdleTimeout,
           MoqxRelay::kDefaultActivityThreshold
       );
+      relay->setAbrStatsHeader(svc.abrStatsHeader);
       services_.emplace(
           name,
           ServiceEntry{

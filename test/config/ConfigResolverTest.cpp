@@ -2336,3 +2336,70 @@ TEST(ResolveConfig, MvfstAlgoFieldsRoundTrip) {
 
 } // namespace
 } // namespace openmoq::moqx::config
+
+// ---------------------------------------------------------------------------
+// abr_stats_header
+// ---------------------------------------------------------------------------
+
+TEST(ResolveConfig, AbrStatsHeaderIsOffByDefault) {
+  auto cfg = makeMinimalInsecureConfig("main");
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasValue());
+  const auto& h = result.value().config.services.at("default").abrStatsHeader;
+  EXPECT_FALSE(h.enabled);
+  EXPECT_EQ(h.extensionBase, 0x4000u);
+  EXPECT_EQ(h.refresh.count(), 1000LL);
+  EXPECT_EQ(h.rateWindow.count(), 1000LL);
+  EXPECT_FALSE(h.perGroup);
+}
+
+TEST(ResolveConfig, AbrStatsHeaderOverride) {
+  auto cfg = makeMinimalInsecureConfig("main");
+  ParsedAbrStatsHeaderConfig h;
+  h.enabled = true;
+  h.extension_base = uint64_t{0x5000};
+  h.refresh_ms = uint64_t{500};
+  h.rate_window_ms = uint64_t{2000};
+  h.per_group = true;
+  cfg.services.value().at("default").abr_stats_header = std::move(h);
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasValue());
+  const auto& out = result.value().config.services.at("default").abrStatsHeader;
+  EXPECT_TRUE(out.enabled);
+  EXPECT_EQ(out.extensionBase, 0x5000u);
+  EXPECT_EQ(out.refresh.count(), 500LL);
+  EXPECT_EQ(out.rateWindow.count(), 2000LL);
+  EXPECT_TRUE(out.perGroup);
+}
+
+TEST(ResolveConfig, AbrStatsHeaderZeroRateWindowRejected) {
+  auto cfg = makeMinimalInsecureConfig("main");
+  ParsedAbrStatsHeaderConfig h;
+  h.rate_window_ms = uint64_t{0};
+  cfg.services.value().at("default").abr_stats_header = std::move(h);
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasError());
+  EXPECT_THAT(result.error(), HasSubstr("abr_stats_header.rate_window_ms must be > 0"));
+}
+
+// An odd type carries a byte string on the wire; every field here is a varint.
+TEST(ResolveConfig, AbrStatsHeaderOddBaseRejected) {
+  auto cfg = makeMinimalInsecureConfig("main");
+  ParsedAbrStatsHeaderConfig h;
+  h.enabled = true;
+  h.extension_base = uint64_t{0x4001};
+  cfg.services.value().at("default").abr_stats_header = std::move(h);
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasError());
+  EXPECT_THAT(result.error(), HasSubstr("abr_stats_header.extension_base must be even"));
+}
+
+TEST(ResolveConfig, AbrStatsHeaderZeroRefreshRejected) {
+  auto cfg = makeMinimalInsecureConfig("main");
+  ParsedAbrStatsHeaderConfig h;
+  h.refresh_ms = uint64_t{0};
+  cfg.services.value().at("default").abr_stats_header = std::move(h);
+  auto result = resolveConfig(cfg);
+  ASSERT_TRUE(result.hasError());
+  EXPECT_THAT(result.error(), HasSubstr("abr_stats_header.refresh_ms must be > 0"));
+}

@@ -109,6 +109,16 @@ class MoqxRelay : public moxygen::Publisher,
                   public NamespaceTree::Callback {
 public:
   // Default for maxDeselected (tracks kept in deselected queue before eviction).
+  // The per-viewer statistics header (relay/AbrStatsFilter.h). Read when a
+  // SUBSCRIBE-driven subscription is set up; a change after that reaches only
+  // later subscriptions.
+  void setAbrStatsHeader(config::AbrStatsHeaderConfig cfg) {
+    abrStatsHeader_ = std::move(cfg);
+  }
+  const config::AbrStatsHeaderConfig& abrStatsHeader() const {
+    return abrStatsHeader_;
+  }
+
   // Set to 0 until pause/resume forwarding callbacks are wired in PropertyRanking;
   // a non-zero value without those callbacks is just topN+N with no benefit.
   static constexpr uint64_t kDefaultMaxDeselected = 0;
@@ -676,6 +686,10 @@ private:
   uint64_t maxDeselected_{kDefaultMaxDeselected};
 
   std::chrono::milliseconds idleTimeout_{kDefaultIdleTimeout};
+  // Stamped onto each SUBSCRIBE-driven downstream subscription's objects when
+  // enabled; see relay/AbrStatsFilter.h. Set once at construction time by the
+  // context, before any session arrives.
+  config::AbrStatsHeaderConfig abrStatsHeader_;
   std::chrono::milliseconds activityThreshold_{kDefaultActivityThreshold};
 };
 

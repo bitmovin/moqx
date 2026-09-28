@@ -222,6 +222,10 @@ TEST(ConfigSerializerTest, VisitsAllSections) {
 
   EXPECT_EQ(sink.scalars["services.default.cache.enabled"], "true");
   EXPECT_EQ(sink.scalars["services.default.cache.max_cached_tracks"], "100");
+  EXPECT_EQ(sink.scalars["services.default.abr_stats_header.enabled"], "false");
+  EXPECT_EQ(sink.scalars["services.default.abr_stats_header.extension_base"], "16384");
+  EXPECT_EQ(sink.scalars["services.default.abr_stats_header.refresh_ms"], "1000");
+  EXPECT_EQ(sink.scalars["services.default.abr_stats_header.rate_window_ms"], "1000");
   EXPECT_EQ(sink.scalars["services.default.match.*.path.prefix"], "/");
   EXPECT_EQ(sink.scalars["services.default.upstream.url"], "https://upstream.example/relay");
   EXPECT_EQ(sink.scalars["services.default.upstream.tls.ca_cert_file"], "/etc/ca.pem");

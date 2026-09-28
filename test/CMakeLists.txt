@@ -343,6 +343,11 @@ moqx_add_gtest(moqx_topn_filter_test
   LIBS moqx_core GTest::gtest_main GTest::gmock
 )
 
+moqx_add_gtest(moqx_abr_stats_filter_test
+  SRCS AbrStatsFilterTest.cpp
+  LIBS moqx_core GTest::gtest_main GTest::gmock
+)
+
 # PropertyRanking base (no self-exclusion) vs. self-exclusion/waterline split.
 moqx_add_gtest(moqx_property_ranking_base_test
   SRCS PropertyRankingBaseTest.cpp

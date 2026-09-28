@@ -404,6 +404,7 @@ add_library(moqx_core STATIC
   src/relay/AuthFilters.cpp
   src/relay/TopNFilter.cpp
   src/relay/TrackStatsFilter.cpp
+  src/relay/AbrStatsFilter.cpp
   src/relay/PropertyRanking.cpp
   src/relay/CrossExecFilter.cpp
   src/relay/CrossExecForwarderCallback.cpp

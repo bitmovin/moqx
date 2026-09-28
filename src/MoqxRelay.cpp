@@ -20,6 +20,7 @@
 #include "relay/SubscriberCrossExecFilter.h"
 #include "relay/TrackEventCallback.h"
 #include "relay/TrackStatsFilter.h"
+#include "relay/AbrStatsFilter.h"
 #include "relay/WeakRelayForwarderCallback.h"
 #include <folly/Random.h>
 #include <folly/container/F14Set.h>
@@ -2304,8 +2305,12 @@ folly::coro::Task<Publisher::SubscribeResult> MoqxRelay::subscribeFromSubscriber
   auto* localReg = &localRegistry();
   auto joined = localReg->join(ftn, [&] { return std::make_shared<MoQForwarder>(ftn); });
 
-  consumer =
-      wrapWithTrackStats(trackStats_, ftn, std::move(consumer), stats::TrackDirection::Egress);
+  consumer = wrapWithTrackStats(
+      trackStats_,
+      ftn,
+      wrapWithAbrStats(abrStatsHeader_, session, std::move(consumer)),
+      stats::TrackDirection::Egress
+  );
 
   if (auto* pending = std::get_if<LocalForwarderRegistry::Pending>(&joined)) {
     // Another subscriber owns setup. Wait for it.
@@ -2456,8 +2461,12 @@ MoqxRelay::subscribeImpl(SubscribeRequest subReq, std::shared_ptr<TrackConsumer>
     co_await upstream_->waitForConnected(kUpstreamConnectWaitTimeout);
   }
 
-  consumer =
-      wrapWithTrackStats(trackStats_, ftn, std::move(consumer), stats::TrackDirection::Egress);
+  consumer = wrapWithTrackStats(
+      trackStats_,
+      ftn,
+      wrapWithAbrStats(abrStatsHeader_, session, std::move(consumer)),
+      stats::TrackDirection::Egress
+  );
 
   // upstreamSession is set by the factory for the first subscriber that needs to go upstream.
   std::shared_ptr<MoQSession> upstreamSession;

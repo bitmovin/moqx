@@ -198,6 +198,16 @@ inline void serializeCache(ConfigSink& s, const CacheConfig& c) {
   s.endObject();
 }
 
+inline void serializeAbrStatsHeader(ConfigSink& s, const AbrStatsHeaderConfig& h) {
+  s.beginObject("abr_stats_header");
+  s.boolField("enabled", h.enabled);
+  s.uintField("extension_base", h.extensionBase);
+  s.intField("refresh_ms", h.refresh.count());
+  s.intField("rate_window_ms", h.rateWindow.count());
+  s.boolField("per_group", h.perGroup);
+  s.endObject();
+}
+
 inline void serializeAuth(ConfigSink& s, const AuthConfig& a) {
   s.beginObject("auth");
   s.boolField("enabled", a.enabled);
@@ -341,6 +351,7 @@ inline void serializeConfig(const Config& cfg, ConfigSink& s) {
     }
     s.endArray();
     serializeCache(s, svc.cache);
+    serializeAbrStatsHeader(s, svc.abrStatsHeader);
     serializeAuth(s, svc.auth);
     if (svc.upstream) {
       serializeUpstream(s, *svc.upstream);

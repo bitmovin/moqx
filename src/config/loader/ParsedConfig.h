@@ -339,6 +339,33 @@ struct ParsedCacheConfig {
       default_max_cache_duration_s;
 };
 
+struct ParsedAbrStatsHeaderConfig {
+  rfl::Description<
+      "Stamp per-viewer connection statistics (bandwidth, RTT, loss, cwnd use) "
+      "onto every object as mutable extension headers. Default: false.",
+      std::optional<bool>>
+      enabled;
+  rfl::Description<
+      "First extension type of the eight fields (base, base+2, ... base+14). "
+      "Must be even. Default: 16384 (0x4000).",
+      std::optional<uint64_t>>
+      extension_base;
+  rfl::Description<
+      "How often (ms) a subscriber's reading is refreshed; the session's transport-info "
+      "cache is lowered to match. Must be > 0. Default: 1000.",
+      std::optional<uint64_t>>
+      refresh_ms;
+  rfl::Description<
+      "Window (ms) the delivery rate and loss rate are taken over, sliding, independent "
+      "of refresh_ms. Must be > 0. Default: 1000.",
+      std::optional<uint64_t>>
+      rate_window_ms;
+  rfl::Description<
+      "Stamp only the first object of each group instead of every object. Default: false.",
+      std::optional<bool>>
+      per_group;
+};
+
 struct ParsedAdminConfig {
   rfl::Description<"HTTP admin server port, 1-65535", uint16_t> port;
   rfl::Description<"Bind address", std::string> address;
@@ -503,6 +530,10 @@ struct ParsedServiceConfig {
       "Per-service cache settings (overrides service_defaults)",
       std::optional<ParsedCacheConfig>>
       cache;
+  rfl::Description<
+      "Per-viewer ABR statistics as object extension headers (off by default)",
+      std::optional<ParsedAbrStatsHeaderConfig>>
+      abr_stats_header;
   rfl::Description<
       "Upstream MoQ server for this service (optional; enables relay chaining)",
       std::optional<ParsedUpstreamConfig>>

@@ -57,6 +57,30 @@ struct CacheConfig {
       defaultMaxCacheDuration; // nullopt = use maxCacheDuration; 0ms = opt-in only
 };
 
+// Per-viewer connection statistics stamped onto every object the relay writes
+// to a subscriber, as mutable object extension headers, so a player can run
+// ABR from what the relay knows about the path to it. Off by default: it is a
+// private extension until the header ids are registered, and every enabled
+// subscription costs a sample of the transport info per refresh.
+struct AbrStatsHeaderConfig {
+  bool enabled{false};
+  // First extension type; the eight fields take base, base+2, ... base+14,
+  // all even so each carries a varint. Must be even.
+  uint64_t extensionBase{0x4000};
+  // How often one subscriber's reading is refreshed; the session's own
+  // transport-info cache is lowered to match. A reading is stamped on every
+  // object until the next one.
+  std::chrono::milliseconds refresh{std::chrono::seconds(1)};
+  // The window the two rates (delivery_rate_bps, loss_permille) are taken
+  // over, independent of the refresh: a short refresh keeps the readings
+  // current, the window keeps the rates from being one packet's worth of
+  // noise. Sliding: each reading takes its rates against the newest reading
+  // at least this old.
+  std::chrono::milliseconds rateWindow{std::chrono::seconds(1)};
+  // Stamp only the first object of each group rather than every object.
+  bool perGroup{false};
+};
+
 // ProxygenQmux carries MoQ over QMUX-on-TCP + Fizz TLS, not QUIC/UDP.
 enum class QuicStack { Mvfst, Picoquic, ProxygenQmux };
 
@@ -245,6 +269,7 @@ struct ServiceConfig {
   CacheConfig cache;
   std::optional<UpstreamConfig> upstream; // set if this service chains to an upstream relay
   AuthConfig auth;
+  AbrStatsHeaderConfig abrStatsHeader;
 };
 
 struct AdminConfig {

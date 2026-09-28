@@ -278,6 +278,48 @@ std::optional<TlsMaterial> resolvePkcs12Material(
   return std::move(*material);
 }
 
+constexpr uint64_t kDefaultAbrExtensionBase = 0x4000;
+constexpr uint64_t kDefaultAbrRefreshMs = 1000;
+constexpr uint64_t kDefaultAbrRateWindowMs = 1000;
+
+AbrStatsHeaderConfig resolveAbrStatsHeader(const std::optional<ParsedAbrStatsHeaderConfig>& parsed) {
+  AbrStatsHeaderConfig out;
+  if (!parsed.has_value()) {
+    return out;
+  }
+  out.enabled = parsed->enabled.value().value_or(false);
+  out.extensionBase = parsed->extension_base.value().value_or(kDefaultAbrExtensionBase);
+  out.refresh = std::chrono::milliseconds(parsed->refresh_ms.value().value_or(kDefaultAbrRefreshMs));
+  out.rateWindow =
+      std::chrono::milliseconds(parsed->rate_window_ms.value().value_or(kDefaultAbrRateWindowMs));
+  out.perGroup = parsed->per_group.value().value_or(false);
+  return out;
+}
+
+// abr_stats_header: the base must be even (an odd type carries bytes, not a
+// varint, and every field is a varint) and the refresh must be > 0.
+void validateAbrStatsHeader(
+    const std::string& serviceName,
+    const std::optional<ParsedAbrStatsHeaderConfig>& parsed,
+    std::vector<std::string>& errors
+) {
+  if (!parsed.has_value()) {
+    return;
+  }
+  if (const auto& base = parsed->extension_base.value(); base.has_value() && (*base % 2) != 0) {
+    errors.push_back(
+        "Service '" + serviceName + "': abr_stats_header.extension_base must be even (" +
+        std::to_string(*base) + ")"
+    );
+  }
+  if (const auto& refresh = parsed->refresh_ms.value(); refresh.has_value() && *refresh == 0) {
+    errors.push_back("Service '" + serviceName + "': abr_stats_header.refresh_ms must be > 0");
+  }
+  if (const auto& window = parsed->rate_window_ms.value(); window.has_value() && *window == 0) {
+    errors.push_back("Service '" + serviceName + "': abr_stats_header.rate_window_ms must be > 0");
+  }
+}
+
 CacheConfig resolveCacheConfig(const ParsedCacheConfig& cache) {
   // All fields must be present after merging (validated earlier).
   // max_cache_duration_s: absent → 1 day default.
@@ -827,6 +869,7 @@ void validateService(
     validateUpstream(*svc.upstream.value(), errors);
   }
   validateServiceAuth(name, svc, config, mergedAuths, errors, warnings);
+  validateAbrStatsHeader(name, svc.abr_stats_header.value(), errors);
 }
 
 std::string generateRelayID() {
@@ -1179,6 +1222,7 @@ ServiceConfig resolveService(
       .cache = resolveCacheConfig(cache),
       .upstream = std::move(upstream),
       .auth = resolveAuth(auth),
+      .abrStatsHeader = resolveAbrStatsHeader(svc.abr_stats_header.value()),
   };
 }
 
