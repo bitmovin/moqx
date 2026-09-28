@@ -133,17 +133,11 @@ public:
   // rate_window_ms is configuration, not a reading: it rides along so a
   // player knows what interval the two rates cover without being told.
   static constexpr size_t kFields = 9;
-  static uint64_t extensionType(uint64_t base, size_t field) {
-    return base + 2 * field;
-  }
+  static uint64_t extensionType(uint64_t base, size_t field) { return base + 2 * field; }
 
-  const config::AbrStatsHeaderConfig& cfg() const {
-    return cfg_;
-  }
+  const config::AbrStatsHeaderConfig& cfg() const { return cfg_; }
   // The sample objects are being stamped with, or nullptr before the first.
-  std::shared_ptr<const Sample> currentSample() const {
-    return sample_.copy();
-  }
+  std::shared_ptr<const Sample> currentSample() const { return sample_.copy(); }
 
 private:
   void maybeRefresh();

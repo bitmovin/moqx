@@ -282,14 +282,16 @@ constexpr uint64_t kDefaultAbrExtensionBase = 0x4000;
 constexpr uint64_t kDefaultAbrRefreshMs = 1000;
 constexpr uint64_t kDefaultAbrRateWindowMs = 1000;
 
-AbrStatsHeaderConfig resolveAbrStatsHeader(const std::optional<ParsedAbrStatsHeaderConfig>& parsed) {
+AbrStatsHeaderConfig resolveAbrStatsHeader(const std::optional<ParsedAbrStatsHeaderConfig>& parsed
+) {
   AbrStatsHeaderConfig out;
   if (!parsed.has_value()) {
     return out;
   }
   out.enabled = parsed->enabled.value().value_or(false);
   out.extensionBase = parsed->extension_base.value().value_or(kDefaultAbrExtensionBase);
-  out.refresh = std::chrono::milliseconds(parsed->refresh_ms.value().value_or(kDefaultAbrRefreshMs));
+  out.refresh =
+      std::chrono::milliseconds(parsed->refresh_ms.value().value_or(kDefaultAbrRefreshMs));
   out.rateWindow =
       std::chrono::milliseconds(parsed->rate_window_ms.value().value_or(kDefaultAbrRateWindowMs));
   out.perGroup = parsed->per_group.value().value_or(false);
@@ -315,9 +317,11 @@ void validateAbrStatsHeader(
   }
   // The last field is at base+16 and every type is a QUIC varint (< 2^62).
   constexpr uint64_t kMaxAbrExtensionBase = (uint64_t{1} << 62) - 1 - 16;
-  if (const auto& base = parsed->extension_base.value(); base.has_value() && *base > kMaxAbrExtensionBase) {
+  if (const auto& base = parsed->extension_base.value();
+      base.has_value() && *base > kMaxAbrExtensionBase) {
     errors.push_back(
-        "Service '" + serviceName + "': abr_stats_header.extension_base leaves no room for "
+        "Service '" + serviceName +
+        "': abr_stats_header.extension_base leaves no room for "
         "the nine fields below 2^62"
     );
   }

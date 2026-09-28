@@ -40,9 +40,8 @@ public:
       moxygen::Extensions extensions = moxygen::noExtensions()
   ) override {
     parent_->stamp(extensions, groupID_, objectID);
-    return downstream_->beginObject(
-        objectID, length, std::move(initialPayload), std::move(extensions)
-    );
+    return downstream_
+        ->beginObject(objectID, length, std::move(initialPayload), std::move(extensions));
   }
 
 private:
@@ -70,9 +69,9 @@ bool sameReading(const quic::TransportInfo& a, const quic::TransportInfo& b) {
     return std::nullopt;
   };
   return a.srtt == b.srtt && minRtt(a) == minRtt(b) && a.congestionWindow == b.congestionWindow &&
-      a.bytesInFlight == b.bytesInFlight && a.bytesAcked == b.bytesAcked &&
-      a.totalAckElicitingPacketsSent == b.totalAckElicitingPacketsSent &&
-      a.totalPacketsMarkedLost == b.totalPacketsMarkedLost && bw(a) == bw(b);
+         a.bytesInFlight == b.bytesInFlight && a.bytesAcked == b.bytesAcked &&
+         a.totalAckElicitingPacketsSent == b.totalAckElicitingPacketsSent &&
+         a.totalPacketsMarkedLost == b.totalPacketsMarkedLost && bw(a) == bw(b);
 }
 
 int64_t nowNs() {
@@ -144,12 +143,13 @@ AbrStatsFilter::Sample AbrStatsFilter::derive(
   s.minRttMs = std::min(minRttMs, s.rttMs);
   s.queueDelayMs = s.rttMs - s.minRttMs;
   s.cwndUtilPct = now.congestionWindow > 0
-      ? std::min<uint64_t>(100, now.bytesInFlight * 100 / now.congestionWindow)
-      : 0;
+                      ? std::min<uint64_t>(100, now.bytesInFlight * 100 / now.congestionWindow)
+                      : 0;
   // The controller's own estimate; BBR fills it, Cubic and NewReno leave it
   // empty, and an empty one is 0 on the wire rather than a missing field, so a
   // stamped object always carries all nine.
-  if (now.maybeCCState.has_value() && now.maybeCCState.value().maybeBandwidthBitsPerSec.has_value()) {
+  if (now.maybeCCState.has_value() &&
+      now.maybeCCState.value().maybeBandwidthBitsPerSec.has_value()) {
     s.bwBps = now.maybeCCState.value().maybeBandwidthBitsPerSec.value();
   }
   if (previous != nullptr && sincePrevious.count() > 0) {
@@ -159,12 +159,13 @@ AbrStatsFilter::Sample AbrStatsFilter::derive(
     const uint64_t acked =
         now.bytesAcked >= previous->bytesAcked ? now.bytesAcked - previous->bytesAcked : 0;
     s.deliveryRateBps = acked * 8 * 1000 / static_cast<uint64_t>(sincePrevious.count());
-    const uint64_t sent = now.totalAckElicitingPacketsSent >= previous->totalAckElicitingPacketsSent
-        ? now.totalAckElicitingPacketsSent - previous->totalAckElicitingPacketsSent
-        : 0;
+    const uint64_t sent =
+        now.totalAckElicitingPacketsSent >= previous->totalAckElicitingPacketsSent
+            ? now.totalAckElicitingPacketsSent - previous->totalAckElicitingPacketsSent
+            : 0;
     const uint64_t lost = now.totalPacketsMarkedLost >= previous->totalPacketsMarkedLost
-        ? now.totalPacketsMarkedLost - previous->totalPacketsMarkedLost
-        : 0;
+                              ? now.totalPacketsMarkedLost - previous->totalPacketsMarkedLost
+                              : 0;
     s.lossPermille = sent > 0 ? std::min<uint64_t>(1000, lost * 1000 / sent) : 0;
   }
   // A first reading has nothing to take a rate over: zero rather than a
@@ -263,7 +264,7 @@ void AbrStatsFilter::stamp(moxygen::Extensions& extensions, uint64_t groupID, ui
           mutableExts.end(),
           [base](const moxygen::Extension& ext) {
             return ext.type >= base && ext.type <= extensionType(base, kFields - 1) &&
-                (ext.type - base) % 2 == 0;
+                   (ext.type - base) % 2 == 0;
           }
       ),
       mutableExts.end()
@@ -321,7 +322,10 @@ std::shared_ptr<moxygen::TrackConsumer> wrapWithAbrStats(
     return AbrStatsFilter::Reading{timed.takenAt, std::move(timed.info)};
   };
   return std::make_shared<AbrStatsFilter>(
-      cfg, std::move(schedule), std::move(reader), std::move(downstream)
+      cfg,
+      std::move(schedule),
+      std::move(reader),
+      std::move(downstream)
   );
 }
 

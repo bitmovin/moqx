@@ -59,7 +59,8 @@ ObjectHeader header(uint64_t group, uint64_t id) {
   return ObjectHeader{group, 0, id};
 }
 
-config::AbrStatsHeaderConfig enabled(std::chrono::milliseconds refresh = 1h, bool perGroup = false) {
+config::AbrStatsHeaderConfig
+enabled(std::chrono::milliseconds refresh = 1h, bool perGroup = false) {
   config::AbrStatsHeaderConfig c;
   c.enabled = true;
   c.extensionBase = kBase;
@@ -114,7 +115,8 @@ protected:
 // ---------------------------------------------------------------------------
 
 TEST(AbrStatsDerive, FirstSampleCarriesNoRates) {
-  auto s = AbrStatsFilter::derive(info(30ms, 20ms, 100'000, 25'000, 5'000'000, 900, 9), nullptr, 0ms, 0);
+  auto s =
+      AbrStatsFilter::derive(info(30ms, 20ms, 100'000, 25'000, 5'000'000, 900, 9), nullptr, 0ms, 0);
   EXPECT_EQ(s.seq, 0u);
   EXPECT_EQ(s.rttMs, 30u);
   EXPECT_EQ(s.minRttMs, 20u);
@@ -139,7 +141,7 @@ TEST(AbrStatsDerive, RatesAreOverTheInterval) {
   EXPECT_EQ(s.seq, 7u);
   EXPECT_EQ(s.deliveryRateBps, 1'000'000u); // 125 000 bytes in one second
   EXPECT_EQ(s.bwBps, 2'500'000u);           // the controller's, untouched
-  EXPECT_EQ(s.lossPermille, 50u);            // 5 of 100 packets
+  EXPECT_EQ(s.lossPermille, 50u);           // 5 of 100 packets
 }
 
 TEST(AbrStatsDerive, MinRttNeverExceedsRttAndCwndUtilCapsAtHundred) {
@@ -207,9 +209,9 @@ TEST_F(AbrStatsFilterTest, SubgroupObjectsAreStamped) {
   auto filter = make(enabled());
   auto sub = std::make_shared<NiceMock<MockSubgroupConsumer>>();
   EXPECT_CALL(*downstream_, beginSubgroup(3, 0, _, _))
-      .WillOnce(Return(folly::makeExpected<MoQPublishError>(
-          std::static_pointer_cast<SubgroupConsumer>(sub)
-      )));
+      .WillOnce(Return(
+          folly::makeExpected<MoQPublishError>(std::static_pointer_cast<SubgroupConsumer>(sub))
+      ));
   Extensions seen;
   EXPECT_CALL(*sub, object(4, _, _, _))
       .WillOnce(Invoke([&](uint64_t, Payload, Extensions ext, bool) {
@@ -331,12 +333,11 @@ TEST_F(AbrStatsFilterTest, RatesAreTakenOverTheRateWindow) {
     filter->objectStream(header(1, 0), nullptr);
   };
   at(0ms, 0);
-  at(300ms, 12'500);   // younger than the window: over what there is
+  at(300ms, 12'500); // younger than the window: over what there is
   at(600ms, 25'000);
-  at(1200ms, 50'000);  // base is the reading a second or more ago (t=0)
-  at(1500ms, 62'500);  // base moves to t=300
+  at(1200ms, 50'000); // base is the reading a second or more ago (t=0)
+  at(1500ms, 62'500); // base moves to t=300
   EXPECT_THAT(rates, ElementsAre(0, 333'333, 333'333, 333'333, 333'333));
-
 }
 
 TEST_F(AbrStatsFilterTest, AGoneConnectionKeepsTheLastSample) {

@@ -66,7 +66,8 @@ static_assert(
 );
 static_assert(
     rfl::internal::num_fields<AbrStatsHeaderConfig> == 5,
-    "AbrStatsHeaderConfig changed — update serializeConfig()");
+    "AbrStatsHeaderConfig changed — update serializeConfig()"
+);
 static_assert(
     rfl::internal::num_fields<ServiceConfig::MatchEntry> == 2,
     "MatchEntry changed — update serializeMatch()"
