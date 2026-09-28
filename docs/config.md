@@ -166,7 +166,7 @@ services:
   live:
     abr_stats_header:
       enabled: true          # default: false
-      extension_base: 16384  # default 0x4000; even; fields at base, base+2, ... base+16
+      extension_base: 14336  # default 0x3800; even; fields at base, base+2, ... base+18
       refresh_ms: 100        # default: 1000; how often a subscriber's reading is re-read
       rate_window_ms: 1000   # default: 1000; window the two rates are taken over
       per_group: false       # default: false; true stamps only the first object of each group

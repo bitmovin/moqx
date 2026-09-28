@@ -278,7 +278,7 @@ std::optional<TlsMaterial> resolvePkcs12Material(
   return std::move(*material);
 }
 
-constexpr uint64_t kDefaultAbrExtensionBase = 0x4000;
+constexpr uint64_t kDefaultAbrExtensionBase = 0x3800;
 constexpr uint64_t kDefaultAbrRefreshMs = 1000;
 constexpr uint64_t kDefaultAbrRateWindowMs = 1000;
 
@@ -315,14 +315,14 @@ void validateAbrStatsHeader(
         std::to_string(*base) + ")"
     );
   }
-  // The last field is at base+16 and every type is a QUIC varint (< 2^62).
-  constexpr uint64_t kMaxAbrExtensionBase = (uint64_t{1} << 62) - 1 - 16;
+  // The last field is at base+18 and every type is a QUIC varint (< 2^62).
+  constexpr uint64_t kMaxAbrExtensionBase = (uint64_t{1} << 62) - 1 - 18;
   if (const auto& base = parsed->extension_base.value();
       base.has_value() && *base > kMaxAbrExtensionBase) {
     errors.push_back(
         "Service '" + serviceName +
         "': abr_stats_header.extension_base leaves no room for "
-        "the nine fields below 2^62"
+        "the ten fields below 2^62"
     );
   }
   // A window shorter than the refresh cannot be honoured: a rate is taken

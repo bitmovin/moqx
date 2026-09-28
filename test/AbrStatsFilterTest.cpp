@@ -19,7 +19,7 @@ using namespace std::chrono_literals;
 
 namespace {
 
-constexpr uint64_t kBase = 0x4000;
+constexpr uint64_t kBase = 0x3800;
 
 quic::TransportInfo info(
     std::chrono::microseconds srtt,
@@ -129,6 +129,25 @@ TEST(AbrStatsDerive, FirstSampleCarriesNoRates) {
   EXPECT_EQ(s.lossPermille, 0u);
 }
 
+// srtt has the ack delay taken out, so the minimum it is compared with must
+// too; otherwise queue_delay reads low.
+TEST(AbrStatsDerive, MinRttIsTheOneWithoutAckDelay) {
+  auto t = info(30ms, 20ms, 100'000, 0, 0, 0, 0);
+  t.maybeMinRttNoAckDelay = 15ms;
+  auto s = AbrStatsFilter::derive(t, nullptr, 0ms, 0);
+  EXPECT_EQ(s.minRttMs, 15u);
+  EXPECT_EQ(s.queueDelayMs, 15u);
+}
+
+// Declarations and sends are counted by when they happened, so a burst of
+// late declarations can pass 1000; it is reported, not clamped.
+TEST(AbrStatsDerive, LossIsNotClamped) {
+  auto before = info(30ms, 20ms, 1, 0, 0, 100, 0);
+  auto after = info(30ms, 20ms, 1, 0, 0, 110, 15);
+  auto s = AbrStatsFilter::derive(after, &before, 1000ms, 1);
+  EXPECT_EQ(s.lossPermille, 1500u);
+}
+
 TEST(AbrStatsDerive, NoControllerEstimateIsZeroNotMissing) {
   auto s = AbrStatsFilter::derive(info(10ms, 10ms, 1, 0, 0, 0, 0, std::nullopt), nullptr, 0ms, 0);
   EXPECT_EQ(s.bwBps, 0u);
@@ -161,7 +180,7 @@ TEST(AbrStatsDerive, NoCwndMeansNoUtilisation) {
 // stamping
 // ---------------------------------------------------------------------------
 
-TEST_F(AbrStatsFilterTest, StampsNineVarintsOnAnObjectStream) {
+TEST_F(AbrStatsFilterTest, StampsTenVarintsOnAnObjectStream) {
   auto filter = make(enabled());
   Extensions seen;
   EXPECT_CALL(*downstream_, objectStream(_, _, _))
@@ -173,15 +192,16 @@ TEST_F(AbrStatsFilterTest, StampsNineVarintsOnAnObjectStream) {
 
   auto m = stamped(seen);
   ASSERT_EQ(m.size(), AbrStatsFilter::kFields);
-  EXPECT_EQ(m[kBase + 0], 2'500'000u); // bw_bps: the controller's estimate
-  EXPECT_EQ(m[kBase + 2], 30u);        // rtt_ms
-  EXPECT_EQ(m[kBase + 4], 20u);        // min_rtt_ms
-  EXPECT_EQ(m[kBase + 6], 10u);        // queue_delay_ms
-  EXPECT_EQ(m[kBase + 8], 0u);         // loss_permille
-  EXPECT_EQ(m[kBase + 10], 25u);       // cwnd_util_pct
-  EXPECT_EQ(m[kBase + 12], 0u);        // seq
-  EXPECT_EQ(m[kBase + 14], 0u);        // delivery_rate_bps: first sample
-  EXPECT_EQ(m[kBase + 16], 1000u);     // rate_window_ms: the configured window
+  EXPECT_EQ(m[kBase + 0], 2'500'000u);  // bw_bps: the controller's estimate
+  EXPECT_EQ(m[kBase + 2], 30u);         // rtt_ms
+  EXPECT_EQ(m[kBase + 4], 20u);         // min_rtt_ms
+  EXPECT_EQ(m[kBase + 6], 10u);         // queue_delay_ms
+  EXPECT_EQ(m[kBase + 8], 0u);          // loss_permille
+  EXPECT_EQ(m[kBase + 10], 25u);        // cwnd_util_pct
+  EXPECT_EQ(m[kBase + 12], 1u);         // seq: the first reading replaced the zero snapshot
+  EXPECT_EQ(m[kBase + 14], 0u);         // delivery_rate_bps: first sample
+  EXPECT_EQ(m[kBase + 16], 1000u);      // rate_window_ms: the configured window
+  EXPECT_EQ(m[kBase + 18], 3'600'000u); // refresh_ms: the configured refresh
   // Every type is even: a varint, never a byte string.
   for (const auto& [type, _] : m) {
     EXPECT_EQ(type % 2, 0u);
@@ -263,9 +283,9 @@ TEST_F(AbrStatsFilterTest, PerGroupStampsACurrentReading) {
         return folly::makeExpected<MoQPublishError>(folly::unit);
       }));
   filter->objectStream(header(1, 1), nullptr); // mid-group join: unstamped, sampled
-  next_->bytesAcked += 1000;
+  next_->srtt = 31ms;
   filter->objectStream(header(2, 0), nullptr); // stamped with the reading just taken
-  EXPECT_THAT(seqs, ElementsAre(999, 1));
+  EXPECT_THAT(seqs, ElementsAre(999, 2));
 }
 
 TEST_F(AbrStatsFilterTest, PerGroupStampsOnlyTheFirstObject) {
@@ -283,9 +303,9 @@ TEST_F(AbrStatsFilterTest, PerGroupStampsOnlyTheFirstObject) {
   EXPECT_THAT(counts, ElementsAre(AbrStatsFilter::kFields, 0, 0, AbrStatsFilter::kFields));
 }
 
-TEST_F(AbrStatsFilterTest, SequenceAdvancesOnlyWhenTheReadingChanges) {
-  // A refresh interval of zero re-reads on every stamp; the reading is what
-  // decides whether the sequence moves.
+TEST_F(AbrStatsFilterTest, SequenceAdvancesOnlyWhenAnEncodedValueChanges) {
+  // A refresh interval of zero re-reads on every stamp; what a player would
+  // see is what decides whether the sequence moves.
   auto filter = make(enabled(0ms));
   std::vector<uint64_t> seqs;
   EXPECT_CALL(*downstream_, objectStream(_, _, _))
@@ -293,23 +313,56 @@ TEST_F(AbrStatsFilterTest, SequenceAdvancesOnlyWhenTheReadingChanges) {
         seqs.push_back(stamped(h.extensions)[kBase + 12]);
         return folly::makeExpected<MoQPublishError>(folly::unit);
       }));
-  filter->objectStream(header(1, 0), nullptr);
+  filter->objectStream(header(1, 0), nullptr); // first reading replaces the zeros
   filter->objectStream(header(1, 1), nullptr); // same reading again
-  next_->bytesAcked += 1000;
-  filter->objectStream(header(1, 2), nullptr); // moved
+  next_->bytesAcked += 1000;                   // raw change, no time passed:
+  filter->objectStream(header(1, 2), nullptr); // every encoded value is the same
   next_->srtt = 31ms;
-  filter->objectStream(header(1, 3), nullptr); // moved
+  filter->objectStream(header(1, 3), nullptr); // rtt_ms moved
   filter->objectStream(header(1, 4), nullptr); // repeat
-  EXPECT_THAT(seqs, ElementsAre(0, 0, 1, 2, 2));
+  EXPECT_THAT(seqs, ElementsAre(1, 1, 1, 2, 2));
 
-  // A long interval repeats the sample, sequence included, even if the
+  // A long interval repeats the snapshot, sequence included, even if the
   // connection moved underneath.
   seqs.clear();
   auto slow = make(enabled(1h));
   slow->objectStream(header(2, 0), nullptr);
-  next_->bytesAcked += 1000;
+  next_->srtt = 40ms;
   slow->objectStream(header(2, 1), nullptr);
-  EXPECT_THAT(seqs, ElementsAre(0, 0));
+  EXPECT_THAT(seqs, ElementsAre(1, 1));
+}
+
+// Before the first reading lands, a subscription's objects still carry a
+// complete snapshot: all zeros but the configured settings, seq 0.
+TEST_F(AbrStatsFilterTest, TheFirstObjectsCarryAZeroSnapshot) {
+  std::vector<folly::Function<void()>> deferred;
+  auto filter = std::make_shared<AbrStatsFilter>(
+      enabled(),
+      [&](folly::Function<void()> task) {
+        deferred.push_back(std::move(task));
+        return true;
+      },
+      [this]() -> std::optional<AbrStatsFilter::Reading> {
+        return AbrStatsFilter::Reading{now_, *next_};
+      },
+      downstream_
+  );
+  std::vector<std::map<uint64_t, uint64_t>> seen;
+  EXPECT_CALL(*downstream_, objectStream(_, _, _))
+      .WillRepeatedly(Invoke([&](const ObjectHeader& h, Payload, bool) {
+        seen.push_back(stamped(h.extensions));
+        return folly::makeExpected<MoQPublishError>(folly::unit);
+      }));
+  filter->objectStream(header(1, 0), nullptr);
+  ASSERT_EQ(seen[0].size(), AbrStatsFilter::kFields);
+  EXPECT_EQ(seen[0][kBase + 12], 0u);
+  EXPECT_EQ(seen[0][kBase + 2], 0u);
+  EXPECT_EQ(seen[0][kBase + 16], 1000u);
+  ASSERT_EQ(deferred.size(), 1u);
+  deferred[0]();
+  filter->objectStream(header(1, 1), nullptr);
+  EXPECT_EQ(seen[1][kBase + 12], 1u);
+  EXPECT_EQ(seen[1][kBase + 2], 30u);
 }
 
 // The rates run over their own window, not over one refresh: three readings

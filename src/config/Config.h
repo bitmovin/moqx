@@ -64,9 +64,11 @@ struct CacheConfig {
 // subscription costs a sample of the transport info per refresh.
 struct AbrStatsHeaderConfig {
   bool enabled{false};
-  // First extension type; the nine fields take base, base+2, ... base+16,
-  // all even so each carries a varint. Must be even.
-  uint64_t extensionBase{0x4000};
+  // First extension type; the ten fields take base, base+2, ... base+18,
+  // all even so each carries a varint. Must be even. The default sits in the
+  // application-specific range: draft-18 reserves 0x4000-0x7FFF for mandatory
+  // track properties, and an object carrying one there is malformed.
+  uint64_t extensionBase{0x3800};
   // How often one subscriber's reading is refreshed; the session's own
   // transport-info cache is lowered to match. A reading is stamped on every
   // object until the next one.

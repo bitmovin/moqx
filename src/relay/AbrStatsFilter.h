@@ -46,9 +46,10 @@ namespace openmoq::moqx {
 // it does. Rates are timed by when the transport was read, not by when this
 // filter asked: the session caches one reading for all its callers.
 //
-// A sequence number goes up with every new sample, and a sample is new only
-// when the reading changed, so a player can tell a fresh reading from a
-// repeat without parsing the rest. Two bandwidth figures:
+// A sequence number goes up whenever a value a player sees changes (compared
+// after integer conversion), so a player can tell a fresh reading from a
+// repeat without parsing the rest. Every object carries the newest snapshot,
+// starting with an all-zero one at seq 0 before the first reading lands. Two bandwidth figures:
 // bw_bps is the congestion controller's estimate (BBR's max delivery rate over
 // the last few round trips, stable but slow to fall), delivery_rate_bps is what
 // this relay measured over the last interval (bytes acked per second, which
@@ -128,11 +129,11 @@ public:
 
   // Extension types, in field order: bw_bps, rtt_ms, min_rtt_ms,
   // queue_delay_ms, loss_permille, cwnd_util_pct, seq, delivery_rate_bps,
-  // rate_window_ms. All even: varints. The last two came after the first
-  // seven were agreed, so they take the next slots rather than reordering.
-  // rate_window_ms is configuration, not a reading: it rides along so a
-  // player knows what interval the two rates cover without being told.
-  static constexpr size_t kFields = 9;
+  // rate_window_ms, refresh_ms. All even: varints. The last three came after
+  // the first seven were agreed, so they take the next slots rather than
+  // reordering. The last two are configuration, not readings: they ride along
+  // so a player sizes its logic to the relay's settings without being told.
+  static constexpr size_t kFields = 10;
   static uint64_t extensionType(uint64_t base, size_t field) { return base + 2 * field; }
 
   const config::AbrStatsHeaderConfig& cfg() const { return cfg_; }

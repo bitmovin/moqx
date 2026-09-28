@@ -63,6 +63,9 @@ bool sameReading(const quic::TransportInfo& a, const quic::TransportInfo& b) {
     return std::nullopt;
   };
   const auto minRtt = [](const quic::TransportInfo& t) -> std::optional<int64_t> {
+    if (t.maybeMinRttNoAckDelay.has_value()) {
+      return t.maybeMinRttNoAckDelay.value().count();
+    }
     if (t.maybeMinRtt.has_value()) {
       return t.maybeMinRtt.value().count();
     }
@@ -72,6 +75,13 @@ bool sameReading(const quic::TransportInfo& a, const quic::TransportInfo& b) {
          a.bytesInFlight == b.bytesInFlight && a.bytesAcked == b.bytesAcked &&
          a.totalAckElicitingPacketsSent == b.totalAckElicitingPacketsSent &&
          a.totalPacketsMarkedLost == b.totalPacketsMarkedLost && bw(a) == bw(b);
+}
+
+// Whether two samples carry the same values on the wire, seq aside.
+bool sameValues(const AbrStatsFilter::Sample& a, const AbrStatsFilter::Sample& b) {
+  return a.bwBps == b.bwBps && a.deliveryRateBps == b.deliveryRateBps && a.rttMs == b.rttMs &&
+         a.minRttMs == b.minRttMs && a.queueDelayMs == b.queueDelayMs &&
+         a.lossPermille == b.lossPermille && a.cwndUtilPct == b.cwndUtilPct;
 }
 
 int64_t nowNs() {
@@ -90,7 +100,10 @@ AbrStatsFilter::AbrStatsFilter(
     std::shared_ptr<moxygen::TrackConsumer> downstream
 )
     : moxygen::TrackConsumerFilter(std::move(downstream)), cfg_(std::move(cfg)),
-      schedule_(std::move(schedule)), reader_(std::move(reader)) {}
+      schedule_(std::move(schedule)), reader_(std::move(reader)),
+      // A complete all-zero snapshot with seq 0 from the start, so the first
+      // object of a subscription is stamped too; the first reading replaces it.
+      sample_(std::make_shared<const Sample>()) {}
 
 folly::Expected<std::shared_ptr<moxygen::SubgroupConsumer>, moxygen::MoQPublishError>
 AbrStatsFilter::beginSubgroup(
@@ -137,9 +150,16 @@ AbrStatsFilter::Sample AbrStatsFilter::derive(
   Sample s;
   s.seq = seq;
   s.rttMs = millis(now.srtt);
-  // mvfst keeps the minimum RTT as an optional; before the first reading of
-  // it the smoothed RTT is the best floor there is.
-  const uint64_t minRttMs = now.maybeMinRtt.has_value() ? millis(now.maybeMinRtt.value()) : s.rttMs;
+  // The minimum without ack delay, because srtt has the peer's ack delay
+  // taken out and the two are subtracted: the minimum with ack delay would
+  // make queue_delay read low. mvfst keeps both as optionals; before the
+  // first reading the smoothed RTT is the best floor there is.
+  uint64_t minRttMs = s.rttMs;
+  if (now.maybeMinRttNoAckDelay.has_value()) {
+    minRttMs = millis(now.maybeMinRttNoAckDelay.value());
+  } else if (now.maybeMinRtt.has_value()) {
+    minRttMs = millis(now.maybeMinRtt.value());
+  }
   s.minRttMs = std::min(minRttMs, s.rttMs);
   s.queueDelayMs = s.rttMs - s.minRttMs;
   s.cwndUtilPct = now.congestionWindow > 0
@@ -147,7 +167,7 @@ AbrStatsFilter::Sample AbrStatsFilter::derive(
                       : 0;
   // The controller's own estimate; BBR fills it, Cubic and NewReno leave it
   // empty, and an empty one is 0 on the wire rather than a missing field, so a
-  // stamped object always carries all nine.
+  // stamped object always carries all ten.
   if (now.maybeCCState.has_value() &&
       now.maybeCCState.value().maybeBandwidthBitsPerSec.has_value()) {
     s.bwBps = now.maybeCCState.value().maybeBandwidthBitsPerSec.value();
@@ -166,7 +186,10 @@ AbrStatsFilter::Sample AbrStatsFilter::derive(
     const uint64_t lost = now.totalPacketsMarkedLost >= previous->totalPacketsMarkedLost
                               ? now.totalPacketsMarkedLost - previous->totalPacketsMarkedLost
                               : 0;
-    s.lossPermille = sent > 0 ? std::min<uint64_t>(1000, lost * 1000 / sent) : 0;
+    // Declarations and sends counted by when they happened, not by packet
+    // cohort, so a burst of late declarations can exceed 1000. Reported as
+    // measured rather than clamped.
+    s.lossPermille = sent > 0 ? lost * 1000 / sent : 0;
   }
   // A first reading has nothing to take a rate over: zero rather than a
   // lifetime average, so a player never mistakes a connection-long figure for
@@ -212,7 +235,7 @@ void AbrStatsFilter::refreshOnExec() {
     if (history_.empty() || !sameReading(*info, history_.back().info)) {
       Sample next;
       if (history_.empty()) {
-        next = derive(*info, nullptr, std::chrono::milliseconds(0), 0);
+        next = derive(*info, nullptr, std::chrono::milliseconds(0), seq_);
       } else {
         // The rates run against the newest reading at least a window old,
         // so they are over the window rather than over one refresh, or
@@ -226,15 +249,20 @@ void AbrStatsFilter::refreshOnExec() {
           }
         }
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - base->at);
-        next = derive(*info, &base->info, elapsed, seq_ + 1);
+        next = derive(*info, &base->info, elapsed, seq_);
       }
-      seq_ = next.seq;
       history_.push_back(Reading{now, *info});
       // Keep exactly one reading that is at least a window old, drop the rest.
       while (history_.size() > 1 && now - history_[1].at >= cfg_.rateWindow) {
         history_.pop_front();
       }
-      *sample_.wlock() = std::make_shared<const Sample>(next);
+      // The sequence moves when a value a player sees changes, compared after
+      // integer conversion, so a raw change that rounds away is not news.
+      auto published = sample_.copy();
+      if (!sameValues(next, *published)) {
+        next.seq = ++seq_;
+        *sample_.wlock() = std::make_shared<const Sample>(next);
+      }
     }
   }
   lastSampledAtNs_.store(nowNs(), std::memory_order_relaxed);
@@ -250,9 +278,6 @@ void AbrStatsFilter::stamp(moxygen::Extensions& extensions, uint64_t groupID, ui
     return;
   }
   const auto s = sample_.copy();
-  if (!s) {
-    return;
-  }
   // Mutable, because they describe a hop, not the object: a relay behind this
   // one (or a publisher) may have stamped the same types, and this viewer
   // wants this hop's figures, not the one upstream of it.
@@ -279,6 +304,7 @@ void AbrStatsFilter::stamp(moxygen::Extensions& extensions, uint64_t groupID, ui
       s->seq,
       s->deliveryRateBps,
       static_cast<uint64_t>(cfg_.rateWindow.count()),
+      static_cast<uint64_t>(cfg_.refresh.count()),
   };
   for (size_t i = 0; i < kFields; i++) {
     extensions.insertMutableExtension(moxygen::Extension(extensionType(base, i), values[i]));

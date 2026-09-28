@@ -2344,7 +2344,7 @@ TEST(ResolveConfig, AbrStatsHeaderIsOffByDefault) {
   ASSERT_TRUE(result.hasValue());
   const auto& h = result.value().config.services.at("default").abrStatsHeader;
   EXPECT_FALSE(h.enabled);
-  EXPECT_EQ(h.extensionBase, 0x4000u);
+  EXPECT_EQ(h.extensionBase, 0x3800u);
   EXPECT_EQ(h.refresh.count(), 1000LL);
   EXPECT_EQ(h.rateWindow.count(), 1000LL);
   EXPECT_FALSE(h.perGroup);
