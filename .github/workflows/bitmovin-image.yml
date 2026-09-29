@@ -1,15 +1,18 @@
 # Builds the relay image this fork ships and pushes it to GHCR under the fork.
 #
 # Runs on a tag like `v0.3.5-bm.1`: an upstream release plus our patch stack,
-# numbered per rebuild. The image is `ghcr.io/bitmovin/moqx:<tag>`, and a tag
-# build then copies it to Artifact Registry as `$GAR_IMAGE:<tag>`, which is
-# what the relay box pins in its compose override: the GHCR package is
-# private, and the box reads GAR with its own service account. The copy is
-# keyless: GCP trusts this repo's OIDC token only on a tag ref and only from
-# this file (ai-incubator-2026-infrastructure, modules/moq-relay/registry.tf),
-# so a manual run on a branch stops at GHCR. It runs after the build because
-# the access token lasts an hour and a cold build does not. amd64 only,
-# because the box is. The moxygen stage comes from cmake/dependencies.cmake's pin: a fork
+# numbered per rebuild. The image is `ghcr.io/bitmovin/moqx:<tag>`. On a tag,
+# the `copy` job then copies that exact image, by digest, to Artifact Registry
+# as `$GAR_IMAGE:<tag>`, the registry the relay box is meant to pull from: the
+# GHCR package is private, and the box reads GAR with its own service account.
+# The copy is keyless, and GCP trusts this repo's OIDC token only on a tag ref
+# and only from this workflow file (ai-incubator-2026-infrastructure,
+# modules/moq-relay/registry.tf), so a manual run on a branch stops at GHCR.
+# A manual run on a tag copies too; it refuses to move a tag GAR already holds
+# at another digest. The copy is its own job so the GCP token never exists
+# during the build, which can outlast it, and so re-running a failed copy
+# copies the verified image instead of rebuilding. amd64 only, because the box
+# is. The moxygen stage comes from cmake/dependencies.cmake's pin: a fork
 # revision has no published prebuilt, so the first build compiles moxygen and
 # folly (about an hour on a hosted runner) and the registry buildcache carries
 # that layer to every build after it until the pin moves.
@@ -34,12 +37,14 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      digest: ${{ steps.verify.outputs.digest }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Tag
         id: tag
         run: |
@@ -62,6 +67,7 @@ jobs:
             -t "${IMAGE}:${TAG}" \
             .
       - name: Verify the stamped version and linkage
+        id: verify
         run: |
           IMAGE="ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}"
           docker pull "$IMAGE"
@@ -69,23 +75,44 @@ jobs:
             echo "ERROR: missing shared libraries" >&2; exit 1
           fi
           docker run --rm --entrypoint /usr/local/bin/moqx "$IMAGE" --version
+          echo "digest=$(docker buildx imagetools inspect "$IMAGE" --format '{{.Manifest.Digest}}')" >> "$GITHUB_OUTPUT"
+
+  copy:
+    needs: image
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      packages: read
+      id-token: write
+    steps:
       - name: Authenticate to Google Cloud
-        if: startsWith(github.ref, 'refs/tags/')
         id: gcp
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
           token_format: access_token
+          create_credentials_file: false
       - name: Copy to Artifact Registry
-        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GAR_TOKEN: ${{ steps.gcp.outputs.access_token }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SRC: ghcr.io/${{ github.repository }}@${{ needs.image.outputs.digest }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+          TAG: ${{ needs.image.outputs.tag }}
         run: |
-          echo "${{ steps.gcp.outputs.access_token }}" | docker login "$GAR_HOST" -u oauth2accesstoken --password-stdin
-          SRC="ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}"
-          DST="${GAR_IMAGE}:${{ steps.tag.outputs.tag }}"
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GAR_TOKEN" | docker login "$GAR_HOST" -u oauth2accesstoken --password-stdin
+          DST="${GAR_IMAGE}:${TAG}"
+          if EXISTING=$(docker buildx imagetools inspect "$DST" --format '{{.Manifest.Digest}}' 2>/dev/null); then
+            if [ "$EXISTING" = "$DIGEST" ]; then
+              echo "$DST already holds $DIGEST"; exit 0
+            fi
+            echo "ERROR: $DST already holds $EXISTING, refusing to move it to $DIGEST; cut a new -bm tag" >&2
+            exit 1
+          fi
           docker buildx imagetools create -t "$DST" "$SRC"
-          SRC_DIGEST=$(docker buildx imagetools inspect "$SRC" --format '{{json .Manifest.Digest}}')
-          DST_DIGEST=$(docker buildx imagetools inspect "$DST" --format '{{json .Manifest.Digest}}')
-          echo "$SRC $SRC_DIGEST"
-          echo "$DST $DST_DIGEST"
-          [ "$SRC_DIGEST" = "$DST_DIGEST" ]
+          COPIED=$(docker buildx imagetools inspect "$DST" --format '{{.Manifest.Digest}}')
+          echo "$DST $COPIED (source $DIGEST)"
+          [ "$COPIED" = "$DIGEST" ]
