@@ -1,9 +1,15 @@
 # Builds the relay image this fork ships and pushes it to GHCR under the fork.
 #
 # Runs on a tag like `v0.3.5-bm.1`: an upstream release plus our patch stack,
-# numbered per rebuild. The image is `ghcr.io/bitmovin/moqx:<tag>`; the relay
-# box pins that exact tag in its compose override. amd64 only, because the box
-# is. The moxygen stage comes from cmake/dependencies.cmake's pin: a fork
+# numbered per rebuild. The image is `ghcr.io/bitmovin/moqx:<tag>`, and a tag
+# build then copies it to Artifact Registry as `$GAR_IMAGE:<tag>`, which is
+# what the relay box pins in its compose override: the GHCR package is
+# private, and the box reads GAR with its own service account. The copy is
+# keyless: GCP trusts this repo's OIDC token only on a tag ref and only from
+# this file (ai-incubator-2026-infrastructure, modules/moq-relay/registry.tf),
+# so a manual run on a branch stops at GHCR. It runs after the build because
+# the access token lasts an hour and a cold build does not. amd64 only,
+# because the box is. The moxygen stage comes from cmake/dependencies.cmake's pin: a fork
 # revision has no published prebuilt, so the first build compiles moxygen and
 # folly (about an hour on a hosted runner) and the registry buildcache carries
 # that layer to every build after it until the pin moves.
@@ -14,6 +20,12 @@ on:
     tags: ["v*-bm.*"]
   workflow_dispatch:
 
+env:
+  GAR_HOST: europe-west3-docker.pkg.dev
+  GAR_IMAGE: europe-west3-docker.pkg.dev/ai-incubator-2026/moq-relay/moqx
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/182387543121/locations/global/workloadIdentityPools/moq-relay-image-ci/providers/github-oidc
+  GCP_SERVICE_ACCOUNT: moq-relay-image-ci@ai-incubator-2026.iam.gserviceaccount.com
+
 jobs:
   image:
     if: github.repository_owner == 'bitmovin'
@@ -22,6 +34,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v5
       - name: Log in to GHCR
@@ -56,3 +69,23 @@ jobs:
             echo "ERROR: missing shared libraries" >&2; exit 1
           fi
           docker run --rm --entrypoint /usr/local/bin/moqx "$IMAGE" --version
+      - name: Authenticate to Google Cloud
+        if: startsWith(github.ref, 'refs/tags/')
+        id: gcp
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+      - name: Copy to Artifact Registry
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          echo "${{ steps.gcp.outputs.access_token }}" | docker login "$GAR_HOST" -u oauth2accesstoken --password-stdin
+          SRC="ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.tag }}"
+          DST="${GAR_IMAGE}:${{ steps.tag.outputs.tag }}"
+          docker buildx imagetools create -t "$DST" "$SRC"
+          SRC_DIGEST=$(docker buildx imagetools inspect "$SRC" --format '{{json .Manifest.Digest}}')
+          DST_DIGEST=$(docker buildx imagetools inspect "$DST" --format '{{json .Manifest.Digest}}')
+          echo "$SRC $SRC_DIGEST"
+          echo "$DST $DST_DIGEST"
+          [ "$SRC_DIGEST" = "$DST_DIGEST" ]
