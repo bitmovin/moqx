@@ -32,6 +32,14 @@
 
 namespace openmoq::moqx {
 
+// The MAX_REQUEST_ID every listener advertises in SERVER_SETUP, replacing
+// moxygen's default of 100 (50 concurrent requests at draft-16's stride of 2).
+// moxygen only raises the limit as requests retire, and a REQUEST_UPDATE never
+// retires the request ID it consumes, so a player that switches tracks with
+// updates runs out after a few dozen switches and can no longer change its
+// subscriptions. This is headroom, not a fix for that leak.
+inline constexpr uint64_t kRelayMaxRequestID = 20000;
+
 // Visitor interface for the top-level relay context state dump.
 // onServiceBegin returns the RelayStateVisitor to use for that service's relay.
 class RelayContextVisitor {

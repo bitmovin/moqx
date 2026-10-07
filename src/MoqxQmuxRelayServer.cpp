@@ -85,6 +85,9 @@ MoqxQmuxRelayServer::MoqxQmuxRelayServer(
   // Advertise on every listener: activation is bilateral and loop protection
   // must not vary by listener configuration.
   addSetupParameter(SetupParameter(folly::to_underlying(SetupKey::RELAY_HOPS), std::string{}));
+  addSetupParameter(
+      SetupParameter(folly::to_underlying(SetupKey::MAX_REQUEST_ID), kRelayMaxRequestID)
+  );
 }
 
 MoqxQmuxRelayServer::~MoqxQmuxRelayServer() {
