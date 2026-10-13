@@ -49,7 +49,7 @@ are the publisher's and pass untouched. The types are `base + 2n`:
 
 | n | type (base 0x3800) | field | unit | what it represents |
 |---|---|---|---|---|
-| 0 | 0x3800 | `bw_bps` | bits/s | The congestion controller's bandwidth estimate for this connection: with BBR, the maximum delivery rate observed over the last few round trips. Long-term and stable. It cannot exceed what the relay is currently sending, so it says reliably when the link is short of the current bitrate and nothing about how much more it could take. 0 when the controller has no estimate (a non-BBR controller, or the first moments of a connection). |
+| 0 | 0x3800 | `bw_bps` | bits/s | The congestion controller's bandwidth estimate for this connection: with BBR, the maximum delivery rate observed over about ten round trips. Long-term and stable. While the relay sends less than the link takes, which is the normal state of a stream within its link, BBR ignores any sample below its current estimate, so the estimate holds what it last measured (at connection start, or during a burst) and can sit well above what the relay is sending now. A fall is real; a value above the current bitrate is a past measurement, not proof of headroom. 0 when the controller has no estimate (a non-BBR controller, or the first moments of a connection). |
 | 1 | 0x3802 | `rtt_ms` | ms | The smoothed round-trip time of the connection right now, the usual exponentially weighted estimate. |
 | 2 | 0x3804 | `min_rtt_ms` | ms | The lowest RTT seen on the connection since it opened, without ack delay (srtt has the peer's ack delay removed, so the two compare like for like): the propagation delay with an empty queue. No rolling expiry; only ever falls. Never larger than `rtt_ms`. |
 | 3 | 0x3806 | `queue_delay_ms` | ms | `rtt_ms − min_rtt_ms`, from the transmitted integer values: excess round-trip delay, most of it waiting in the bottleneck's buffer. Near 0 means the queue is empty; it rises as a buffer fills, before anything is lost, which makes it the earliest sign that the bitrate is too much for the link. It does not say which hop the queue is at. |
@@ -73,8 +73,10 @@ track to a subscriber (PUBLISH, not SUBSCRIBE) are never stamped.
 - **Going down.** `queue_delay_ms` climbing over a few readings is the early
   warning; `loss_permille` above 0 and `delivery_rate_bps` falling below the
   current rendition's bitrate confirm it. `bw_bps` follows later.
-- **Going up.** No field says how much headroom there is: both bandwidth
-  figures are capped by what is being sent. Probe: switch up and watch
+- **Going up.** No field says how much headroom there is now:
+  `delivery_rate_bps` is capped by what is being sent, and a `bw_bps` above
+  the current bitrate may be left over from a burst or from the start of the
+  connection. Probe: switch up and watch
   `queue_delay_ms`. If it stays flat, the link took it; if it climbs, come
   back down. `cwnd_util_pct` well below 100 with a flat queue is a hint that
   a probe is safe.
@@ -118,7 +120,11 @@ few milliseconds before the first reading lands.
   it over several readings rather than one.
 - `bw_bps` is BBR's bandwidth estimate: the maximum delivery rate observed
   over a window of about ten round trips. That window is why it is slow to
-  fall and why `delivery_rate_bps` exists.
+  fall and why `delivery_rate_bps` exists. The window only moves on a sample
+  BBR accepts, and while the sender is application-limited it accepts only
+  samples at or above the current estimate (mvfst's `BbrBandwidthSampler`), so
+  on a stream sent below the link's capacity the estimate stays at its last
+  high until the link becomes the limit again.
 
 **Rates over the window** (`rate_window_ms`, default 1000): `delivery_rate_bps`
 and `loss_permille`. Both are measured between the current reading and the
