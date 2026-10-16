@@ -150,6 +150,7 @@ docker compose up -d
 | `MOQX_BIND_ADDR` | `0.0.0.0` | Listen address |
 | `MOQX_MAX_TRACKS` | `1000` | Max cached tracks |
 | `MOQX_MAX_GROUPS` | `100` | Max groups per track |
+| `MOQX_ABR_STATS` | `false` | Per-viewer ABR statistics on every object; `MOQX_ABR_STATS_*` tune them ([abr-stats-header.md](docs/abr-stats-header.md)) |
 | `MOQX_LOG_LEVEL` | `0` | Min log level (0-3) |
 | `MOQX_VERBOSE` | `0` | VLOG level (0-4) |
 | `MOQX_LOG_PORT` | `9999` | Dozzle log viewer port (localhost only) |

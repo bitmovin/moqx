@@ -26,6 +26,13 @@
 #   MOQX_MAX_GROUPS — max groups per track in cache (default: 100)
 #   MOQX_CACHE      — relay object cache enabled (default: true)
 #
+# Per-viewer ABR statistics (docs/abr-stats-header.md; defaults are moqx's own):
+#   MOQX_ABR_STATS            — stamp them on every object (default: false)
+#   MOQX_ABR_STATS_BASE       — first extension type, even (default: 14336)
+#   MOQX_ABR_STATS_REFRESH_MS — how often a reading is re-read (default: 1000)
+#   MOQX_ABR_STATS_WINDOW_MS  — window the rates cover (default: 1000)
+#   MOQX_ABR_STATS_PER_GROUP  — stamp only each group's first object (default: false)
+#
 # Performance (inherited by the CI deploy / interop adapter; override to tune):
 #   MOQX_THREADS          — IO worker threads (default: 4; must be >= 1)
 #   MOQX_LOCAL_FWD        — per-subscriber-thread local forwarders (default: true)
@@ -107,6 +114,11 @@ export MOQX_MOQT_VERSIONS="${MOQX_MOQT_VERSIONS:-[16, 14, 18]}"
 export MOQX_MAX_TRACKS="${MOQX_MAX_TRACKS:-1000}"
 export MOQX_MAX_GROUPS="${MOQX_MAX_GROUPS:-100}"
 export MOQX_CACHE="${MOQX_CACHE:-true}"
+export MOQX_ABR_STATS="${MOQX_ABR_STATS:-false}"
+export MOQX_ABR_STATS_BASE="${MOQX_ABR_STATS_BASE:-14336}"
+export MOQX_ABR_STATS_REFRESH_MS="${MOQX_ABR_STATS_REFRESH_MS:-1000}"
+export MOQX_ABR_STATS_WINDOW_MS="${MOQX_ABR_STATS_WINDOW_MS:-1000}"
+export MOQX_ABR_STATS_PER_GROUP="${MOQX_ABR_STATS_PER_GROUP:-false}"
 # Performance defaults (see header). MOQX_THREADS must be >= 1 (no autodetect).
 export MOQX_THREADS="${MOQX_THREADS:-4}"
 export MOQX_LOCAL_FWD="${MOQX_LOCAL_FWD:-true}"
