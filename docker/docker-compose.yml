@@ -56,6 +56,11 @@ services:
       MOQX_ADMIN_PORT: ${MOQX_ADMIN_PORT:-8000}
       MOQX_MAX_TRACKS: ${MOQX_MAX_TRACKS:-1000}
       MOQX_MAX_GROUPS: ${MOQX_MAX_GROUPS:-100}
+      MOQX_ABR_STATS: ${MOQX_ABR_STATS:-false}
+      MOQX_ABR_STATS_BASE: ${MOQX_ABR_STATS_BASE:-14336}
+      MOQX_ABR_STATS_REFRESH_MS: ${MOQX_ABR_STATS_REFRESH_MS:-1000}
+      MOQX_ABR_STATS_WINDOW_MS: ${MOQX_ABR_STATS_WINDOW_MS:-1000}
+      MOQX_ABR_STATS_PER_GROUP: ${MOQX_ABR_STATS_PER_GROUP:-false}
       # Log level for the whole stack via folly XLOG (empty = baseline INFO).
       # e.g. MOQX_LOGGING=DBG2 or MOQX_LOGGING=INFO,quic=WARN. moqx promotes MOQX_LOGGING
       # to folly's FOLLY_LOGGING internally — see docs/logging.md.

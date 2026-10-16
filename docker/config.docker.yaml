@@ -56,6 +56,13 @@ services:
       enabled: ${MOQX_CACHE}
       max_tracks: ${MOQX_MAX_TRACKS}
       max_groups_per_track: ${MOQX_MAX_GROUPS}
+    # Per-viewer connection statistics on every object (docs/abr-stats-header.md).
+    abr_stats_header:
+      enabled: ${MOQX_ABR_STATS}
+      extension_base: ${MOQX_ABR_STATS_BASE}
+      refresh_ms: ${MOQX_ABR_STATS_REFRESH_MS}
+      rate_window_ms: ${MOQX_ABR_STATS_WINDOW_MS}
+      per_group: ${MOQX_ABR_STATS_PER_GROUP}
 
 admin:
   port: ${MOQX_ADMIN_PORT}
