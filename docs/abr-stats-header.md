@@ -42,10 +42,13 @@ measured over, independent of the refresh (see Timing).
 Every field is a MoQ object extension header of an even type, so its value is
 a varint. They are in the *mutable* section: they describe a hop, not the
 object. The relay removes any mutable values of these types that arrive from
-upstream (a publisher, or a relay behind it) from every object it forwards,
-stamped or not, and even with the header disabled; a viewer only ever sees
-this relay's figures for its own connection, once each. Immutable extensions
-are the publisher's and pass untouched. The types are `base + 2n`:
+upstream (a publisher, or a relay behind it) from every object it delivers
+on a subscription, SUBSCRIBE- or PUBLISH-driven, stamped or not, and even
+with the header disabled; there a viewer only ever sees this relay's figures
+for its own connection, once each. FETCH answers are the exception: they come
+from the cache or from upstream as they arrived, unstamped and unstripped, so
+any values of these types in them are upstream's, not this relay's. Immutable
+extensions are the publisher's and pass untouched. The types are `base + 2n`:
 
 | n | type (base 0x3800) | field | unit | what it represents |
 |---|---|---|---|---|
@@ -96,8 +99,8 @@ So with a 300 ms refresh and 300 ms groups, `seq` moves about once per group;
 with 100 ms it moves about three times per group, and an ABR that wants to
 choose a rung mid-group has three chances. The reading itself is taken by the
 relay's transport, which the relay asks no more often than the same interval.
-The first objects of a new subscription may carry no header at all, for the
-few milliseconds before the first reading lands.
+Until the first reading lands, a few milliseconds after a subscription
+opens, its objects carry the all-zero snapshot at `seq` 0.
 
 **Instantaneous fields**, as of the reading: `rtt_ms`, `min_rtt_ms`,
 `queue_delay_ms`, `cwnd_util_pct`, `bw_bps`.
