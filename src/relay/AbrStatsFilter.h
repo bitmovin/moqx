@@ -41,21 +41,29 @@ namespace openmoq::moqx {
 // may read or configure. The data path may run on another thread (a forwarder
 // hop lands wherever the subscriber's executor is), so this never touches the
 // session directly: when a sample is due it schedules one on the session's
-// executor, and stamps from the latest sample that landed. The first objects
-// after a subscription open go out unstamped, for the few milliseconds until
-// it does. Rates are timed by when the transport was read, not by when this
-// filter asked: the session caches one reading for all its callers.
+// executor, and stamps from the latest sample that landed; until the first
+// one does, a few milliseconds after the subscription opens, objects carry the
+// all-zero snapshot below. Rates are timed by when the transport was read, not
+// by when this filter asked: the session caches one reading for all its
+// callers.
 //
 // A sequence number goes up whenever a value a player sees changes (compared
 // after integer conversion), so a player can tell a fresh reading from a
 // repeat without parsing the rest. Every object carries the newest snapshot,
-// starting with an all-zero one at seq 0 before the first reading lands. Two bandwidth figures:
-// bw_bps is the congestion controller's estimate (BBR's max delivery rate over
-// the last few round trips, stable but slow to fall), delivery_rate_bps is what
-// this relay measured over the last interval (bytes acked per second, which
-// drops within one interval when the link degrades). Neither can exceed what
-// the relay is currently sending this viewer: reliable for switching down,
-// weak for switching up, which is the player's to probe.
+// starting with an all-zero one at seq 0 before the first reading lands.
+//
+// Two bandwidth figures: bw_bps is the congestion controller's estimate (BBR's
+// max delivery rate over the last few round trips, stable but slow to fall),
+// delivery_rate_bps is what this relay measured over the last interval (bytes
+// acked per second, which drops within one interval when the link degrades).
+// delivery_rate_bps cannot exceed what the relay is sending this viewer;
+// bw_bps can, because BBR holds its estimate while the sender is app-limited
+// (docs/abr-stats-header.md). Both are reliable for switching down and weak
+// for switching up, which is the player's to probe.
+//
+// FETCH answers never pass through this filter (MoqxRelay::fetchImpl): they
+// are not stamped, and upstream values of these types in them are not
+// stripped.
 class AbrStatsFilter : public moxygen::TrackConsumerFilter,
                        public std::enable_shared_from_this<AbrStatsFilter> {
 public:

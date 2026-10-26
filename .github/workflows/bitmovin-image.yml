@@ -12,10 +12,11 @@
 # at another digest. The copy is its own job so the GCP token never exists
 # during the build, which can outlast it, and so re-running a failed copy
 # copies the verified image instead of rebuilding. amd64 only, because the box
-# is. The moxygen stage comes from cmake/dependencies.cmake's pin: a fork
-# revision has no published prebuilt, so the first build compiles moxygen and
-# folly (about an hour on a hosted runner) and the registry buildcache carries
-# that layer to every build after it until the pin moves.
+# is. The moxygen stage comes from cmake/dependencies.cmake's pin: the
+# bitmovin/moxygen fork publishes a `snapshot-<sha12>` prebuilt for each push
+# to its `bitmovin` branch, and the image fetches it. A pin with no prebuilt
+# yet compiles moxygen and folly instead (about an hour on a hosted runner),
+# and the registry buildcache carries that layer until the pin moves.
 name: bitmovin image
 
 on:

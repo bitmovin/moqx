@@ -8,9 +8,10 @@
 # branch. So a topic branch reaches this branch's ccache only through a PR.
 #
 # `--moxygen prebuilt-with-fallback`: the pin is a bitmovin/moxygen revision,
-# which has no published prebuilt, so this compiles moxygen and its folly
-# stack from source until a prebuilt for that revision is published; ccache
-# carries most of it between runs.
+# and that fork publishes a `snapshot-<sha12>` prebuilt for every push to its
+# `bitmovin` branch, which this fetches. Only a pin whose prebuilt is not
+# published yet compiles moxygen and its folly stack from source; ccache
+# carries most of that between runs.
 name: bitmovin ci
 
 on:

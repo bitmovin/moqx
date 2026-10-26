@@ -2610,6 +2610,8 @@ Fetch MoqxRelay::fetchOnSubscriberExec(Fetch fetch, const std::shared_ptr<MoQSes
   return fetch;
 }
 
+// FETCH answers bypass AbrStatsFilter: no statistics stamp, and upstream values
+// of its extension types pass through (docs/abr-stats-header.md).
 folly::coro::Task<Publisher::FetchResult>
 MoqxRelay::fetchImpl(Fetch fetch, std::shared_ptr<FetchConsumer> consumer) {
   auto session = MoQSession::getRequestSession();
